@@ -106,6 +106,11 @@ keep game-specific constants in `Constants`. The drivetrain has no dependency
 on the superstructure, so it can be copied to a new SystemCore project and the
 REV/CTRE IO implementation selected in one place.
 
+For a new controller, update the WPILib/Gradle/vendor versions, the
+`WPILOGWriter` path in `Robot.java` if the filesystem differs, and add the new
+swerve IO implementation. The drivetrain control, tests, and package layout do
+not depend on the roboRIO itself.
+
 ## Build, test, and deploy
 
 ```bash
