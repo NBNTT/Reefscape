@@ -1,109 +1,228 @@
-// Copyright (c) FIRST and other WPILib contributors.
-// Open Source Software; you can modify and/or share it under the terms of
-// the WPILib BSD license file in the root directory of this project.
-
 package frc.robot;
+
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.util.Units;
 
 /**
- * The Constants class provides a convenient place for teams to hold robot-wide
- * numerical or boolean constants. This class should not be used for any other
- * purpose. All constants should be declared globally (i.e. public static). Do
- * not put anything functional in this class.
+ * All robot-wide constants for the drivetrain.
  *
  * <p>
- * It is advised to statically import this class (or one of its inner classes)
- * wherever the constants are needed, to reduce verbosity.
+ * There are two hardware sets:
+ * <ul>
+ * <li>REV MK4n: the old 2024 test robot. This is the active set.</li>
+ * <li>CTRE MK5n: the future Kraken X60/X44 robot. Those values are placeholders
+ * and are not active until {@link #kHardware} is changed.</li>
+ * </ul>
  */
 public final class Constants {
-
-	public static final boolean fieldOriented = true;
-
-	public static class OperatorConstants {
-		public static final int kDriverControllerPort = 0;
-		public static final int kOperatorControllerPort = 0;
+	private Constants() {
 	}
 
-	public static class ModuleConstants {
-		// CHANGE LATER:
-		public static final double kDriveEncoderRot2Meter = 0.0;
-		public static final double kDriveEncoderRPM2MeterPerSec = 0.0;
-		public static final double kTurningEncoderRot2Rad = 0.0;
-		public static final double kTurningEncoderRPM2RadPerSec = 0.0;
-		public static final double kPTurning = 0.0;
+	/**
+	 * Selects the hardware implementation. The 2024 test robot uses the REV MK4n
+	 * path; the 2026+ robot will use the CTRE MK5n path.
+	 */
+	public enum Hardware {
+		REV_MK4N, CTRE_MK5N
 	}
-	// CHANGE LATER:
-	public static class DriveConstants {
 
+	/**
+	 * The robot that is actually connected. Change this to
+	 * {@link Hardware#CTRE_MK5N} only after the CTRE IDs, offsets, wheel size, and
+	 * gear ratio below are filled in.
+	 */
+	public static final Hardware kHardware = Hardware.REV_MK4N;
+
+	public static final class CAN {
+		/** Empty means the roboRIO CAN bus; put a CANivore name here if used. */
+		public static final String kCanBus = "";
+		/** CAN ID of the Pigeon 2 gyro. */
+		public static final int kPigeonId = 31;
+
+		/*
+		 * Old robot wiring. These are the last known-working REV values; do not change
+		 * one without checking the actual robot.
+		 */
+		public static final int kRevFrontLeftDriveId = 10;
+		public static final int kRevFrontLeftTurnId = 20;
+		public static final int kRevFrontLeftEncoderChannel = 0;
+
+		public static final int kRevFrontRightDriveId = 11;
+		public static final int kRevFrontRightTurnId = 21;
+		public static final int kRevFrontRightEncoderChannel = 1;
+
+		public static final int kRevBackLeftDriveId = 12;
+		public static final int kRevBackLeftTurnId = 22;
+		public static final int kRevBackLeftEncoderChannel = 2;
+
+		public static final int kRevBackRightDriveId = 13;
+		public static final int kRevBackRightTurnId = 23;
+		public static final int kRevBackRightEncoderChannel = 3;
+
+		/*
+		 * Future CTRE MK5n wiring. These are placeholders; fill them from the real
+		 * robot before switching Constants.kHardware to CTRE_MK5N.
+		 */
+		public static final int kCtreFrontLeftDriveId = 1;
+		public static final int kCtreFrontLeftTurnId = 5;
+		public static final int kCtreFrontLeftEncoderId = 11;
+
+		public static final int kCtreFrontRightDriveId = 2;
+		public static final int kCtreFrontRightTurnId = 6;
+		public static final int kCtreFrontRightEncoderId = 12;
+
+		public static final int kCtreBackLeftDriveId = 3;
+		public static final int kCtreBackLeftTurnId = 7;
+		public static final int kCtreBackLeftEncoderId = 13;
+
+		public static final int kCtreBackRightDriveId = 4;
+		public static final int kCtreBackRightTurnId = 8;
+		public static final int kCtreBackRightEncoderId = 14;
+	}
+
+	/**
+	 * Everything one swerve module needs to know about its hardware.
+	 *
+	 * <p>
+	 * The offset is applied in software, so the same calibration style works for
+	 * the REV analog encoder and the CTRE CANcoder.
+	 *
+	 * @param name
+	 *            FL, FR, BL, or BR; used in documentation and logs
+	 * @param driveId
+	 *            drive motor CAN ID
+	 * @param turnId
+	 *            steering motor CAN ID
+	 * @param encoderId
+	 *            REV analog channel or CTRE CANcoder CAN ID
+	 * @param driveInverted
+	 *            true if the drive motor must spin the other way
+	 * @param turnInverted
+	 *            true if the steering motor must spin the other way
+	 * @param encoderInverted
+	 *            true if the absolute encoder counts the other way
+	 * @param encoderOffsetRad
+	 *            angle added to the raw absolute encoder reading
+	 * @param wheelDiameterMeters
+	 *            wheel diameter in meters
+	 * @param driveGearRatio
+	 *            motor rotations per one wheel rotation
+	 */
+	public record SwerveModuleConfig(String name, int driveId, int turnId, int encoderId, boolean driveInverted,
+			boolean turnInverted, boolean encoderInverted, double encoderOffsetRad, double wheelDiameterMeters,
+			double driveGearRatio) {
+		/** Meters the robot travels per one motor rotation. */
+		public double driveRotToMeters() {
+			return Math.PI * wheelDiameterMeters / driveGearRatio;
+		}
+	}
+
+	public static final class ModuleConstants {
+		/* REV MK4n: 3.75 inch wheel and 5.9:1 drive gearing. */
+		public static final double kRevWheelDiameterMeters = Units.inchesToMeters(3.75);
+		public static final double kRevDriveGearRatio = 5.9;
+
+		/* CTRE MK5n placeholders; replace with the real module specs. */
+		public static final double kCtreWheelDiameterMeters = Units.inchesToMeters(4.0);
+		public static final double kCtreDriveGearRatio = 6.75;
+
+		/* REV/old-robot steering PID. P is the old working value; tune on the robot. */
+		public static final double kPTurning = 0.25;
+		public static final double kITurning = 0.0;
+		public static final double kDTurning = 0.0;
+
+		/*
+		 * CTRE vendor steering loop gains (volts per rotation). These are starting
+		 * placeholders for the future robot; tune them on the Kraken robot.
+		 */
+		public static final double kCtreTurnKp = 10.0;
+		public static final double kCtreTurnKi = 0.0;
+		public static final double kCtreTurnKd = 0.0;
+	}
+
+	public static final class DriveConstants {
+		/* Old robot measurement. Change these if the chassis is different. */
 		public static final double kTrackWidth = Units.inchesToMeters(20.75);
-		// Distance between front and back wheels:
 		public static final double kWheelBase = Units.inchesToMeters(20.75);
 
+		/*
+		 * Converts wheel motion into robot motion. Module order is FL, FR, BL, BR and
+		 * must match kRevModuleConfigs/kCtreModuleConfigs and Swerve.
+		 */
 		public static final SwerveDriveKinematics kDriveKinematics = new SwerveDriveKinematics(
 				new Translation2d(kWheelBase / 2, kTrackWidth / 2), // Front left (+/+)
 				new Translation2d(kWheelBase / 2, -kTrackWidth / 2), // Front right (+/-)
 				new Translation2d(-kWheelBase / 2, kTrackWidth / 2), // Back left (-/+)
 				new Translation2d(-kWheelBase / 2, -kTrackWidth / 2)); // Back right (-/-)
 
-		public static final boolean kFrontLeftDriveEncoderReversed = false;
-		public static final boolean kFrontLeftTurningEncoderReversed = false;
-		public static final double kFrontLeftDriveAbsoluteEncoderOffsetRad = 0.01;
-		public static final boolean kFrontLeftDriveAbsoluteEncoderReversed = false;
-		public static final int kFrontLeftDriveAbsoluteEncoderPort = 0;
+		/* Physical top speed. Drive output is a fraction of this value. */
+		public static final double kMaxSpeedMetersPerSecond = 4.5;
+		/* Old teleop turn cap. The physical maximum is 3*pi rad/s. */
+		public static final double kMaxAngularSpeedRadiansPerSecond = 4.5;
+		/* The robot loop runs at 50 Hz; used to correct curved motion. */
+		public static final double kLoopPeriodSeconds = 0.02;
+		/* Slew-rate limits, used so the robot starts moving smoothly. */
+		public static final double kMaxAccelerationMetersPerSecondSquared = 13.5;
+		public static final double kMaxAngularAccelerationRadiansPerSecondSquared = 13.5;
 
-		public static final boolean kFrontRightDriveEncoderReversed = false;
-		public static final boolean kFrontRightTurningEncoderReversed = false;
-		public static final double kFrontRightDriveAbsoluteEncoderOffsetRad = 0.01;
-		public static final boolean kFrontRightDriveAbsoluteEncoderReversed = false;
-		public static final int kFrontRightDriveAbsoluteEncoderPort = 0;
+		/*
+		 * Order is FL, FR, BL, BR and must match kDriveKinematics. The offsets are the
+		 * old calibration record: they make each wheel read 0 when it points straight
+		 * forward. Do not "simplify" the sums unless you recalibrate.
+		 */
+		public static final SwerveModuleConfig[] kRevModuleConfigs = {
+				new SwerveModuleConfig("FL", CAN.kRevFrontLeftDriveId, CAN.kRevFrontLeftTurnId,
+						CAN.kRevFrontLeftEncoderChannel, true, true, false, -2.854 - 0.494 - 0.548 - 2.987 - 0.02,
+						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio),
+				new SwerveModuleConfig("FR", CAN.kRevFrontRightDriveId, CAN.kRevFrontRightTurnId,
+						CAN.kRevFrontRightEncoderChannel, true, true, false, -2.231 + 0.060 - 0.05 - 2.83 + Math.PI,
+						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio),
+				new SwerveModuleConfig("BL", CAN.kRevBackLeftDriveId, CAN.kRevBackLeftTurnId,
+						CAN.kRevBackLeftEncoderChannel, true, true, false, 3.022 + 0.115 - 0.092 - 0.01,
+						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio),
+				new SwerveModuleConfig("BR", CAN.kRevBackRightDriveId, CAN.kRevBackRightTurnId,
+						CAN.kRevBackRightEncoderChannel, true, true, false,
+						0.349 + 0.324 + 1.029 + 0.672 - 1.961 - 0.082 + 0.125 + 0.07,
+						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio)};
 
-		public static final boolean kBackLeftDriveEncoderReversed = false;
-		public static final boolean kBackLeftTurningEncoderReversed = false;
-		public static final double kBackLeftDriveAbsoluteEncoderOffsetRad = 0.01;
-		public static final boolean kBackLeftDriveAbsoluteEncoderReversed = false;
-		public static final int kBackLeftDriveAbsoluteEncoderPort = 0;
+		/* Same FL, FR, BL, BR order. These are placeholders for the future robot. */
+		public static final SwerveModuleConfig[] kCtreModuleConfigs = {
+				new SwerveModuleConfig("FL", CAN.kCtreFrontLeftDriveId, CAN.kCtreFrontLeftTurnId,
+						CAN.kCtreFrontLeftEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
+						ModuleConstants.kCtreDriveGearRatio),
+				new SwerveModuleConfig("FR", CAN.kCtreFrontRightDriveId, CAN.kCtreFrontRightTurnId,
+						CAN.kCtreFrontRightEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
+						ModuleConstants.kCtreDriveGearRatio),
+				new SwerveModuleConfig("BL", CAN.kCtreBackLeftDriveId, CAN.kCtreBackLeftTurnId,
+						CAN.kCtreBackLeftEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
+						ModuleConstants.kCtreDriveGearRatio),
+				new SwerveModuleConfig("BR", CAN.kCtreBackRightDriveId, CAN.kCtreBackRightTurnId,
+						CAN.kCtreBackRightEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
+						ModuleConstants.kCtreDriveGearRatio)};
 
-		public static final boolean kBackRightDriveEncoderReversed = false;
-		public static final boolean kBackRightTurningEncoderReversed = false;
-		public static final double kBackRightDriveAbsoluteEncoderOffsetRad = 0.01;
-		public static final boolean kBackRightDriveAbsoluteEncoderReversed = false;
-		public static final int kBackRightDriveAbsoluteEncoderPort = 0;
-
-		public static final double kPhysicalMaxSpeedMetersPerSecond = 0.01;
-		public static final double kTeleDriveMaxSpeedMetersPerSecond = 0.01;
-
-		public static final double kTeleDriveMaxAccelerationUnitsPerSecond = 0.01;
-		public static final double kTeleDriveMaxAngularAccelerationUnitsPerSecond = 0.01;
+		/*
+		 * A true X: front-left and back-right wheels on one diagonal, front-right and
+		 * back-left on the other. Speed is zero; the steering PID moves the wheels into
+		 * position.
+		 */
+		public static final SwerveModuleState[] kCrossModuleStates = {
+				new SwerveModuleState(0.0, Rotation2d.fromDegrees(45)),
+				new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
+				new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
+				new SwerveModuleState(0.0, Rotation2d.fromDegrees(45))};
 	}
-	// CAN = computer area network
-	public static class CAN {
-		public static final int kFrontLeftDriveMotorPort = 0;
-		public static final int kFrontLeftTurningMotorPort = 0;
 
-		public static final int kFrontRightDriveMotorPort = 0;
-		public static final int kFrontRightTurningMotorPort = 0;
-
-		public static final int kBackLeftDriveMotorPort = 0;
-		public static final int kBackLeftTurningMotorPort = 0;
-
-		public static final int kBackRightDriveMotorPort = 0;
-		public static final int kBackRightTurningMotorPort = 0;
-
-	}
-
-	public static class OIConstants {
-		public static final ControllerType controllerTypeDriver = ControllerType.XBOX;
-		public static final ControllerType controllerTypeOperator = ControllerType.XBOX;
-
+	public static final class OIConstants {
+		/* Driver controller port on the Driver Station. */
 		public static final int kDriverControllerPort = 0;
-		public static final int kOperatorControllerPort = 1;
-
+		/* Stick inputs smaller than this are treated as zero. */
 		public static final double kDeadband = 0.1;
-	}
-
-	public static enum ControllerType {
-		XBOX, LOGITECH, JOYSTICK
+		/* Right bumper scales the drivetrain to this fraction of full speed. */
+		public static final double kSlowModeFactor = 0.33;
+		/* Rumble strength while slow mode is held. */
+		public static final double kRumble = 0.025;
 	}
 }
