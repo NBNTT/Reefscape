@@ -11,15 +11,13 @@ public interface GyroIO {
 	class GyroIOInputs {
 		/** Robot heading in radians, wrapped to -pi..pi. */
 		public double yawRad = 0.0;
-		/** False if the gyro is not responding. */
+		/** False if the gyro is not responding or its status signals are stale. */
 		public boolean connected = false;
 	}
 
 	/** Reads the current heading. Called every 20 ms. */
-	default void updateInputs(GyroIOInputs inputs) {
-	}
+	void updateInputs(GyroIOInputs inputs);
 
 	/** Makes the robot's current direction the new heading zero. */
-	default void resetYaw() {
-	}
+	void resetYaw();
 }

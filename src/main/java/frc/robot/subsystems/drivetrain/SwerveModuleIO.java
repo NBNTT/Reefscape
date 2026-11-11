@@ -23,35 +23,51 @@ public interface SwerveModuleIO {
 		public double turnCurrentAmps = 0.0;
 		public double turnTempCelsius = 0.0;
 
-		/* False usually means the absolute encoder is unplugged or miswired. */
+		/* Raw REV encoder voltage; the CTRE path leaves these at zero. */
+		public double absoluteEncoderVoltage = 0.0;
+		public double absoluteEncoderReferenceVoltage = 0.0;
+
+		/*
+		 * Each implementation must clear the flags it cannot prove. Defaults are
+		 * optimistic so a simple simulation does not need to set every field.
+		 */
+		public boolean driveConnected = true;
+		public boolean turnConnected = true;
+		public boolean hardwareConfigured = true;
 		public boolean absoluteEncoderConnected = false;
+		/*
+		 * Empty when the hardware is healthy; otherwise a short human-readable reason.
+		 */
+		public String hardwareFault = "";
 	}
 
 	/** Reads all of the above from the hardware. Called every 20 ms. */
-	default void updateInputs(SwerveModuleIOInputs inputs) {
-	}
+	void updateInputs(SwerveModuleIOInputs inputs);
 
 	/** Drive motor voltage command, in volts. */
-	default void setDriveVoltage(double volts) {
-	}
+	void setDriveVoltage(double volts);
 
 	/** Steering motor command as a fraction of full scale. */
-	default void setTurnOutput(double output) {
-	}
+	void setTurnOutput(double output);
 
 	/**
 	 * True if this hardware runs its own steering position loop. The CTRE path
-	 * does; the REV and simulated paths use the shared PID in SwerveModule.
+	 * does; the REV and simulated paths use the shared PID in SwerveModule. This is
+	 * a genuinely optional capability, so it has a safe default.
 	 */
 	default boolean usesTurnPositionControl() {
 		return false;
 	}
 
-	/** Target steering angle in radians; only called when the above is true. */
+	/**
+	 * Target steering angle in radians; only called when the above is true. An IO
+	 * that claims vendor steering must override this instead of silently doing
+	 * nothing.
+	 */
 	default void setTurnPosition(double angleRad) {
+		throw new UnsupportedOperationException("This swerve module IO does not support vendor steering");
 	}
 
 	/** Re-zeroes the drive encoder after a wheel change. */
-	default void resetDrivePosition() {
-	}
+	void resetDrivePosition();
 }

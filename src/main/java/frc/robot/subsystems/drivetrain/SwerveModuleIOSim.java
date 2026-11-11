@@ -42,7 +42,12 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 		inputs.turnAppliedVolts = turnOutput * 12.0;
 		inputs.turnCurrentAmps = Math.abs(turnOutput) * 20.0;
 		inputs.turnTempCelsius = 25.0;
+		inputs.absoluteEncoderVoltage = 2.5;
+		inputs.absoluteEncoderReferenceVoltage = 5.0;
 		inputs.absoluteEncoderConnected = true;
+		inputs.hardwareConfigured = true;
+		inputs.driveConnected = true;
+		inputs.turnConnected = true;
 	}
 
 	@Override

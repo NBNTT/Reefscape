@@ -11,6 +11,7 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.wpilibj.AnalogInput;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotController;
+import frc.robot.Constants.RevConstants;
 import frc.robot.Constants.SwerveModuleConfig;
 
 /**
@@ -22,6 +23,9 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 	private final SparkMax turnMotor;
 	private final AnalogInput absoluteEncoder;
 	private final SwerveModuleConfig config;
+	private final boolean driveConfigured;
+	private final boolean turnConfigured;
+	private final String hardwareFault;
 
 	public SwerveModuleIOSparkMax(SwerveModuleConfig config) {
 		this.config = config;
@@ -31,30 +35,30 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 		// motor.
 		driveMotor = new SparkMax(config.driveId(), MotorType.kBrushless);
 		SparkMaxConfig driveConfig = new SparkMaxConfig();
-		driveConfig.voltageCompensation(12.0);
-		driveConfig.smartCurrentLimit(40);
+		driveConfig.voltageCompensation(RevConstants.kVoltageCompensationVolts);
+		driveConfig.smartCurrentLimit(RevConstants.kDriveSmartCurrentLimitAmps);
 		driveConfig.inverted(config.driveInverted());
 		driveConfig.idleMode(IdleMode.kBrake);
 		// Convert motor rotations to meters and RPM to meters per second.
 		driveConfig.encoder.positionConversionFactor(config.driveRotToMeters());
 		driveConfig.encoder.velocityConversionFactor(config.driveRotToMeters() / 60.0);
-		reportIfError(driveMotor.configure(driveConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters),
-				"Drive SparkMax " + config.driveId());
+		driveConfigured = configure(driveMotor, driveConfig, "Drive SparkMax " + config.driveId());
 
 		// The steering angle comes from the absolute encoder, so this motor does
 		// not need an encoder conversion.
 		turnMotor = new SparkMax(config.turnId(), MotorType.kBrushless);
 		SparkMaxConfig turnConfig = new SparkMaxConfig();
-		turnConfig.voltageCompensation(12.0);
-		turnConfig.smartCurrentLimit(40);
+		turnConfig.voltageCompensation(RevConstants.kVoltageCompensationVolts);
+		turnConfig.smartCurrentLimit(RevConstants.kTurnSmartCurrentLimitAmps);
 		turnConfig.inverted(config.turnInverted());
 		turnConfig.idleMode(IdleMode.kBrake);
-		reportIfError(turnMotor.configure(turnConfig, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters),
-				"Turn SparkMax " + config.turnId());
+		turnConfigured = configure(turnMotor, turnConfig, "Turn SparkMax " + config.turnId());
 
 		absoluteEncoder = new AnalogInput(config.encoderId());
 		// Distance is measured from where the robot starts.
 		driveMotor.getEncoder().setPosition(0.0);
+
+		hardwareFault = buildFault();
 	}
 
 	@Override
@@ -71,22 +75,35 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 		// the very bottom or top of the range usually means it is unplugged.
 		double encoderVoltage = absoluteEncoder.getAverageVoltage();
 		double referenceVoltage = RobotController.getVoltage5V();
-		boolean encoderConnected = referenceVoltage > 0.1 && encoderVoltage > 0.01
-				&& encoderVoltage < referenceVoltage - 0.01;
+		boolean referenceOk = Double.isFinite(referenceVoltage)
+				&& referenceVoltage >= RevConstants.kMinReferenceVoltageVolts;
+		boolean encoderConnected = referenceOk && Double.isFinite(encoderVoltage)
+				&& encoderVoltage > RevConstants.kEncoderMinVolts
+				&& encoderVoltage < referenceVoltage - RevConstants.kEncoderMaxMarginVolts;
 		inputs.absoluteEncoderConnected = encoderConnected;
-		inputs.turnAbsolutePositionRad = absoluteEncoderAngle(encoderVoltage, referenceVoltage);
+		inputs.absoluteEncoderVoltage = encoderVoltage;
+		inputs.absoluteEncoderReferenceVoltage = referenceVoltage;
+		inputs.turnAbsolutePositionRad = absoluteEncoderAngle(encoderVoltage, referenceVoltage, encoderConnected);
 		inputs.turnAppliedVolts = turnMotor.getAppliedOutput() * turnMotor.getBusVoltage();
 		inputs.turnCurrentAmps = turnMotor.getOutputCurrent();
 		inputs.turnTempCelsius = turnMotor.getMotorTemperature();
+
+		inputs.hardwareConfigured = driveConfigured && turnConfigured;
+		inputs.hardwareFault = hardwareFault;
+		inputs.driveConnected = driveConfigured && !hasCanFault(driveMotor);
+		inputs.turnConnected = turnConfigured && !hasCanFault(turnMotor);
 	}
 
 	/**
 	 * Converts the raw 0-5 V encoder voltage into a wheel angle. The offset makes
 	 * "wheel pointing straight forward" read as zero; the modulus keeps the angle
-	 * between -pi and +pi.
+	 * between -pi and +pi. An invalid reading returns NaN so it cannot steer.
 	 */
-	private double absoluteEncoderAngle(double voltage, double referenceVoltage) {
-		double angle = referenceVoltage > 0.1 ? voltage / referenceVoltage * 2.0 * Math.PI : 0.0;
+	private double absoluteEncoderAngle(double voltage, double referenceVoltage, boolean connected) {
+		if (!connected) {
+			return Double.NaN;
+		}
+		double angle = voltage / referenceVoltage * 2.0 * Math.PI;
 		angle += config.encoderOffsetRad();
 		angle = MathUtil.inputModulus(angle, -Math.PI, Math.PI);
 		return config.encoderInverted() ? -angle : angle;
@@ -107,10 +124,29 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 		driveMotor.getEncoder().setPosition(0.0);
 	}
 
-	/** A failed SparkMax configuration is silent unless we report it. */
-	private static void reportIfError(REVLibError error, String device) {
+	/** Applies one complete configuration and reports the result. */
+	private static boolean configure(SparkMax motor, SparkMaxConfig config, String device) {
+		REVLibError error = motor.configure(config, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
 		if (error != REVLibError.kOk) {
 			DriverStation.reportError("Failed to configure " + device + ": " + error, false);
+			return false;
+		}
+		return true;
+	}
+
+	private String buildFault() {
+		if (driveConfigured && turnConfigured) {
+			return "";
+		}
+		return (driveConfigured ? "" : "drive config failed; ") + (turnConfigured ? "" : "turn config failed");
+	}
+
+	/** A failed fault query is treated as a CAN fault, not as good news. */
+	private static boolean hasCanFault(SparkMax motor) {
+		try {
+			return motor.getFaults().can;
+		} catch (RuntimeException exception) {
+			return true;
 		}
 	}
 }

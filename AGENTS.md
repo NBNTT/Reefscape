@@ -23,26 +23,36 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   REVLib **2025.0.1**. The `akit-autolog` processor in `build.gradle` must match
   the vendor JSON version.
 - No PathPlanner in this season.
-- Source: `subsystems/drivetrain/Swerve`, `SwerveModule`, `SwerveModuleIO*`,
-  `GyroIO*`; `commands/drivetrain/SwerveTeleOp`, `Autos`; `Constants`,
-  `RobotContainer`. Add future superstructure/vision beside them, not inside
-  the drivetrain.
+- Source: `subsystems/drivetrain/Swerve`, `SwerveModule`, `PoseHistory`,
+  `SwerveModuleIO*`, `GyroIO*`; `commands/drivetrain/SwerveTeleOp`, `Autos`,
+  `ResetHeading`; `DriverControls`, `Constants`, `RobotContainer`. Add future
+  superstructure/vision beside them, not inside the drivetrain.
 - Hardware: `Constants.kHardware = REV_MK4N` is the 2024 test robot;
-  `CTRE_MK5N` is the future Kraken robot and needs real IDs/offsets filled.
+  `CTRE_MK5N` is the future Kraken robot, needs real IDs/offsets filled, and is
+  gated by `Constants.kCtreConfigured = false`.
 - Drive control is measured wheel velocity with feedforward; do not reintroduce
   open-loop percent output or SparkMax onboard velocity control.
 - Stick input uses deadband rescaling plus a squared response; do not re-add the
   old `1 / 0.8` or `1 / 0.9` raw boost. Full stick must still reach the
   configured maximum.
 - Heading hold uses the separate `HeadingConstants` PID. Manual rotation must
-  override it; it must stay off in robot-oriented mode, X-lock, disabled, and
-  autonomous.
-- Start and Back reset the gyro and pose heading together in every mode. Back
-  was the original 2025 binding; do not remove either without an explicit
+  override it; it must stay off in robot-oriented mode, X-lock, disabled,
+  autonomous, and whenever the gyro is unhealthy or has no valid reading.
+- Start and Back reset the gyro and pose heading together in Disabled, Teleop,
+  and Test. They are intentionally not bound while an autonomous is running.
+  Back was the original 2025 binding; do not remove either without an explicit
   control decision.
+- Physical controls live in `DriverControls`. Drivetrain code takes semantic
+  suppliers and must not import a controller class.
 - Vision must go through `Swerve.addVisionMeasurement` from the robot main
-  loop only, so age, order, covariance, field bounds, jump gates, and
-  accepted/rejected logs are preserved. The estimator is not thread-safe.
+  loop only, so age, order, covariance, field bounds, historical-pose,
+  innovation, and accepted/rejected logs are preserved. The estimator is not
+  thread-safe.
+- A module with a bad encoder reading must never steer or drive. A sustained
+  module fault stops the whole drivetrain; do not add three-wheel driving
+  without validated control allocation and tests.
+- A gyro fault must force robot-oriented driving and report the fallback; do not
+  keep field-oriented control on a stale heading.
 
 ## Read first
 
@@ -77,10 +87,11 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   initialization behavior, teleop interruption, field- and robot-oriented
   driving at multiple headings, heading-hold capture/hold/manual override/
   wraparound/reset, periodic drive-encoder stability, drive-voltage limits,
-  vendor steering, measured velocity control, the autonomous foundation, and
-  vision gating. `SwerveTeleOpTest` covers deadband continuity, squared
-  response, sign preservation, and full-stick reach. Expand them before
-  changing behavior.
+  vendor steering, measured velocity control, the autonomous foundation, vision
+  gating and delayed history, encoder/gyro fault and recovery, module-fault safe
+  stop, semantic mode transitions, disabled reset, startup validation, CTRE
+  steering wrap, and CTRE config retry. `ConstantsTest` covers wiring validation.
+  `SwerveTeleOpTest` covers input shaping. Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.

@@ -19,7 +19,8 @@ The active path is selected by `Constants.kHardware`.
 - `REV_MK4N`: the 2024 test robot. This is active now.
 - `CTRE_MK5N`: the future Kraken robot. The code compiles, but the CTRE IDs,
   offsets, wheel size, gearing, current limits, and steering gains are
-  placeholders. Fill them before enabling.
+  placeholders. `Constants.kCtreConfigured` is `false` and startup refuses to
+  create CTRE hardware until it is set after the values are filled in.
 
 ## Driver controls
 
@@ -36,11 +37,39 @@ The controllers are **8BitDo Ultimate 2 Wireless** in Xbox mode. Start is the
 `+`/Menu button and Back is the `−`/View button. The original 2025 code used
 Back for the gyro reset; Start was commented out. Start is now the primary reset
 as requested, and Back remains bound so the old control is not lost. Both work
-in every mode, including Disabled and Autonomous.
+while **Disabled**, **Teleop**, and **Test**. They are intentionally not bound while
+an autonomous is running, where a mid-auto heading reset would corrupt the auto
+pose.
 
-The 8BitDo extra back buttons are not mapped yet. Move the robot-oriented
-toggle to one of them by changing the `driver.leftBumper()` binding in
-`RobotContainer`.
+All physical mapping lives in `DriverControls`; the drivetrain command receives
+named suppliers and does not import a controller class. The 8BitDo extra back
+buttons are not mapped yet. Move the robot-oriented toggle to one of them by
+changing `DriverControls.toggleRobotOriented()`.
+
+## Fault behavior
+
+- Required `SwerveModuleIO` and `GyroIO` methods are abstract. A new hardware
+  implementation cannot silently do nothing.
+- Startup validates the active module IDs, encoder channels, offsets, wheel
+  diameter, gearing, gains, CAN bus, and current limits. Selecting CTRE while
+  `kCtreConfigured` is false aborts before hardware is created.
+- CTRE configuration is applied with retries and every status is checked. A
+  failed TalonFX/CANcoder configuration is reported and disables the affected
+  module. Phoenix status signals are refreshed and checked every cycle, not just
+  the encoder connection flag.
+- A disconnected, non-finite, or implausibly jumping absolute encoder is never
+  used for steering. The module neutralizes immediately, reports a fault after
+  100 ms, and recovers after 200 ms of good readings.
+- If any module is faulted or has a bad reading, the whole drivetrain stops.
+  Three-wheel driving is intentionally not implemented because it is not
+  validated.
+- A disconnected or stale gyro forces robot-oriented driving, disables heading
+  hold, and keeps the last valid heading for odometry. Field-oriented driving
+  resumes after the gyro is healthy again.
+- Faults and recoveries go to the Driver Station and to AdvantageKit:
+  `Drive/FaultActive`, `Drive/FaultReason`, `Drive/FaultCount`,
+  `Drive/RecoveryCount`, `Drive/HardwareMode`, `Drive/GyroFallbackActive`, and
+  each module's `Healthy`, `ReadingValid`, `FaultReason`, and `RecoveryCount`.
 
 ## Autonomous
 
@@ -59,9 +88,11 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
 ```
 
 Call it from the robot main loop only; the pose estimator is not thread-safe.
-`Swerve` filters stale, future, out-of-order, low-tag, invalid-covariance,
-outside-field, and large-jump measurements, then logs `Vision/Accepted`,
-`Vision/RejectedReason`, and accepted/rejected counts. The 2025 field bounds
+`Swerve` compares a delayed frame with the estimated pose at the frame
+timestamp (`PoseHistory`), not only with the current pose. It filters stale,
+future, out-of-order, low-tag, invalid-covariance, outside-field, and large-jump
+measurements, then logs `Vision/Accepted`, `Vision/RejectedReason`,
+`Vision/HistoricalPose`, and accepted/rejected counts. The 2025 field bounds
 live in `Constants.VisionConstants` and must be updated for a new game. See
 `docs/VALIDATION.md`.
 
@@ -73,6 +104,7 @@ live in `Constants.VisionConstants` and must be updated for a new game. See
   Full stick still reaches the configured maximum.
 - The old `1 / 0.8` and `1 / 0.9` raw-input boost was removed.
 - Translation and rotation acceleration limits remain separate and configurable.
+  They use a fixed 20 ms step, so tests do not depend on wall-clock timing.
 - Requested chassis speeds are discretized over the 20 ms loop.
 - Steering setpoints use the shortest path and cosine compensation; steering
   gains were not changed.
@@ -82,22 +114,24 @@ live in `Constants.VisionConstants` and must be updated for a new game. See
 - Heading hold captures the current heading when the turn stick is released and
   uses a separate P-only PID to hold it. Manual rotation always overrides it.
   Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
-  autonomous.
+  autonomous, and whenever field heading is unavailable.
 - Start/Back resets the gyro and pose heading together and clears the held
-  heading.
+  heading in Disabled, Teleop, and Test.
 - The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
-  steering in the TalonFX.
+  steering in the TalonFX with a continuous target wrapped to the closest
+  rotation.
 - Teleop is blocked in Autonomous and Disabled.
 
 ## Repository layout
 
 ```text
 frc/robot/
-  Constants.java          robot-wide constants and hardware selection
+  Constants.java          robot-wide constants, hardware selection, startup validation
+  DriverControls.java     the only physical controller/button mapping
   Robot.java              WPILib/AdvantageKit main loop
   RobotContainer.java     wiring, controls, auto chooser
-  commands/drivetrain/    SwerveTeleOp, Autos
-  subsystems/drivetrain/  Swerve, SwerveModule, Gyro, IO implementations
+  commands/drivetrain/    SwerveTeleOp, Autos, ResetHeading
+  subsystems/drivetrain/  Swerve, SwerveModule, PoseHistory, Gyro, IO implementations
 ```
 
 The next robot can add `subsystems/superstructure/`, `subsystems/vision/`, and
@@ -128,10 +162,17 @@ teleop interruption, field- and robot-oriented driving at multiple headings,
 heading-hold capture/hold/manual override/wraparound/reset, input shaping
 (deadband continuity, squared response, full-stick maximum), periodic
 drive-encoder stability, drive-voltage limits, vendor steering, measured
-velocity control, the autonomous foundation, and vision gating.
+velocity control, the autonomous foundation, vision gating, delayed-vision
+history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
+module-fault safe stop, semantic mode transitions, disabled heading reset,
+startup validation, and CTRE steering wraparound.
 
-The robot now logs measured versus requested chassis speeds, per-module
-steering/speed error, loop time, battery voltage, and all module inputs.
+GitHub Actions runs `spotlessCheck build` on every pull request and on `main`.
+No robot or camera is needed for the offline test suite.
+
+The robot logs measured versus requested chassis speeds, per-module
+steering/speed error, loop time, battery voltage, all module inputs, health
+flags, fault reasons, and recovery counts.
 
 ## AdvantageKit note
 
@@ -143,5 +184,6 @@ This repo uses **AdvantageKit 4.1.2** because 4.0.0 does not publish the
 
 CAN IDs, offsets, gearing, speed limits, and the REV steering PID are the last
 known-working values. Do the blocks checks in
-[docs/VALIDATION.md](docs/VALIDATION.md) before driving. The CTRE path is not
+[docs/VALIDATION.md](docs/VALIDATION.md) before driving, including the analog
+encoder voltage range and the gyro disconnect/fallback test. The CTRE path is not
 hardware-tested until the new robot exists.

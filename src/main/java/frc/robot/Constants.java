@@ -5,7 +5,9 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.util.Units;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * All robot-wide constants for the drivetrain.
@@ -36,6 +38,13 @@ public final class Constants {
 	 * gear ratio below are filled in.
 	 */
 	public static final Hardware kHardware = Hardware.REV_MK4N;
+
+	/**
+	 * False until every CTRE value below is filled from the real MK5n robot.
+	 * Selecting CTRE hardware while this is false aborts startup before any motor
+	 * is created.
+	 */
+	public static final boolean kCtreConfigured = false;
 
 	public static final class CAN {
 		/** Empty means the roboRIO CAN bus; put a CANivore name here if used. */
@@ -142,6 +151,50 @@ public final class Constants {
 		public static final double kCtreTurnKp = 10.0;
 		public static final double kCtreTurnKi = 0.0;
 		public static final double kCtreTurnKd = 0.0;
+	}
+
+	public static final class RevConstants {
+		/*
+		 * Old-robot REV hardware settings. These are active; change only with wiring.
+		 */
+		public static final int kDriveSmartCurrentLimitAmps = 40;
+		public static final int kTurnSmartCurrentLimitAmps = 40;
+		public static final double kVoltageCompensationVolts = 12.0;
+		/* The analog encoder is assumed to span 0 V to the measured 5 V rail. */
+		public static final double kEncoderMinVolts = 0.01;
+		public static final double kEncoderMaxMarginVolts = 0.01;
+		public static final double kMinReferenceVoltageVolts = 4.5;
+	}
+
+	public static final class CtreConstants {
+		/* Future MK5n hardware settings; placeholders until the real robot exists. */
+		public static final double kDriveSupplyCurrentLimitAmps = 40.0;
+		public static final double kDriveStatorCurrentLimitAmps = 80.0;
+		public static final double kTurnSupplyCurrentLimitAmps = 40.0;
+		public static final double kTurnStatorCurrentLimitAmps = 80.0;
+		public static final double kPeakForwardVoltage = 12.0;
+		public static final double kPeakReverseVoltage = -12.0;
+		/* 50 Hz is enough for the 50 Hz robot loop and keeps CAN load down. */
+		public static final double kStatusUpdateHz = 50.0;
+		public static final int kConfigRetries = 3;
+		public static final double kConfigRetryDelaySeconds = 0.02;
+		public static final double kConfigTimeoutSeconds = 0.1;
+	}
+
+	public static final class HealthConstants {
+		/* Invalid frames before a module or the gyro is reported failed. */
+		public static final int kEncoderFaultDebounceFrames = 5;
+		public static final int kGyroFaultDebounceFrames = 5;
+		/* Consecutive good frames required before driving resumes after a fault. */
+		public static final int kEncoderRecoveryFrames = 10;
+		public static final int kGyroRecoveryFrames = 10;
+		/*
+		 * A steering angle jump this large in one 20 ms cycle is not physically
+		 * plausible. A new angle must stay stable for the confirm count before it is
+		 * accepted, so a single noisy sample cannot steer the module.
+		 */
+		public static final double kMaxAngleJumpRad = 1.5;
+		public static final int kAngleJumpConfirmFrames = 10;
 	}
 
 	public static final class DriveConstants {
@@ -252,6 +305,8 @@ public final class Constants {
 		/* 2025 Reefscape field bounds; update these for each new game. */
 		public static final double kFieldLengthMeters = 16.54175;
 		public static final double kFieldWidthMeters = 8.21055;
+		/* About two seconds of pose history at 50 Hz for delayed vision checks. */
+		public static final int kPoseHistoryCapacity = 100;
 	}
 
 	public static final class OIConstants {
@@ -263,5 +318,110 @@ public final class Constants {
 		public static final double kSlowModeFactor = 0.33;
 		/* Rumble strength while slow mode is held. */
 		public static final double kRumble = 0.025;
+	}
+
+	/** The wiring set for the selected {@link #kHardware}. */
+	public static List<SwerveModuleConfig> activeModuleConfigs() {
+		return kHardware == Hardware.CTRE_MK5N ? DriveConstants.kCtreModuleConfigs : DriveConstants.kRevModuleConfigs;
+	}
+
+	/**
+	 * Fails startup with a readable message if the active hardware set is not
+	 * complete. Called by {@link frc.robot.subsystems.drivetrain.Swerve} before any
+	 * motor or encoder object is created.
+	 */
+	public static void validateActiveHardware() {
+		validateHardware(kHardware, activeModuleConfigs(), kCtreConfigured);
+	}
+
+	/**
+	 * Testable validation core. Package-private so tests can pass broken configs
+	 * without changing the real robot constants.
+	 */
+	static void validateHardware(Hardware hardware, List<SwerveModuleConfig> configs, boolean ctreConfigured) {
+		require(hardware != null, "hardware selection is null");
+		require(configs != null && configs.size() == 4,
+				"expected four swerve module configs, got " + (configs == null ? "null" : configs.size()));
+		require(DriveConstants.kTrackWidth > 0.0, "track width must be positive");
+		require(DriveConstants.kWheelBase > 0.0, "wheelbase must be positive");
+		require(DriveConstants.kMaxSpeedMetersPerSecond > 0.0, "max speed must be positive");
+		require(DriveConstants.kMaxAngularSpeedRadiansPerSecond > 0.0, "max angular speed must be positive");
+		require(DriveConstants.kLoopPeriodSeconds > 0.0, "loop period must be positive");
+		require(DriveConstants.kMaxAccelerationMetersPerSecondSquared > 0.0, "max acceleration must be positive");
+		require(DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared > 0.0,
+				"max angular acceleration must be positive");
+		require(isFiniteNonNegative(DriveConstants.kDriveKp), "drive kP must be finite and non-negative");
+		require(isFiniteNonNegative(DriveConstants.kDriveKi), "drive kI must be finite and non-negative");
+		require(isFiniteNonNegative(DriveConstants.kDriveKd), "drive kD must be finite and non-negative");
+		require(isFiniteNonNegative(DriveConstants.kDriveKsVolts), "drive kS must be finite and non-negative");
+		require(isFiniteNonNegative(DriveConstants.kDriveKvVoltsPerMps), "drive kV must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kPTurning), "steering kP must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kITurning), "steering kI must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kDTurning), "steering kD must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKp), "CTRE steering kP must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKi), "CTRE steering kI must be finite and non-negative");
+		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKd), "CTRE steering kD must be finite and non-negative");
+		require(isFiniteNonNegative(HeadingConstants.kKp), "heading kP must be finite and non-negative");
+		require(isFiniteNonNegative(HeadingConstants.kKi), "heading kI must be finite and non-negative");
+		require(isFiniteNonNegative(HeadingConstants.kKd), "heading kD must be finite and non-negative");
+		require(RevConstants.kDriveSmartCurrentLimitAmps > 0, "REV drive current limit must be positive");
+		require(RevConstants.kTurnSmartCurrentLimitAmps > 0, "REV turn current limit must be positive");
+		require(RevConstants.kVoltageCompensationVolts > 0.0, "REV voltage compensation must be positive");
+		require(CtreConstants.kDriveSupplyCurrentLimitAmps > 0.0, "CTRE drive supply limit must be positive");
+		require(CtreConstants.kDriveStatorCurrentLimitAmps > 0.0, "CTRE drive stator limit must be positive");
+		require(CtreConstants.kTurnSupplyCurrentLimitAmps > 0.0, "CTRE turn supply limit must be positive");
+		require(CtreConstants.kTurnStatorCurrentLimitAmps > 0.0, "CTRE turn stator limit must be positive");
+		require(CtreConstants.kPeakForwardVoltage > 0.0, "CTRE peak forward voltage must be positive");
+		require(CtreConstants.kPeakReverseVoltage < 0.0, "CTRE peak reverse voltage must be negative");
+		require(CtreConstants.kStatusUpdateHz > 0.0, "CTRE status update rate must be positive");
+		require(CtreConstants.kConfigRetries > 0, "CTRE config retries must be positive");
+		require(CtreConstants.kConfigRetryDelaySeconds >= 0.0, "CTRE retry delay must not be negative");
+		require(CtreConstants.kConfigTimeoutSeconds > 0.0, "CTRE config timeout must be positive");
+		require(CAN.kCanBus != null, "CAN bus name is null");
+		require(CAN.kPigeonId > 0, "Pigeon CAN ID must be positive");
+
+		if (hardware == Hardware.CTRE_MK5N) {
+			require(ctreConfigured, "CTRE hardware is selected but Constants.kCtreConfigured is false; "
+					+ "fill the CTRE IDs, offsets, wheel size, gearing, current limits, and gains first");
+		}
+
+		Set<Integer> canIds = new HashSet<>();
+		canIds.add(CAN.kPigeonId);
+		Set<Integer> analogChannels = new HashSet<>();
+		Set<String> names = new HashSet<>();
+		for (SwerveModuleConfig config : configs) {
+			require(config != null, "module config is null");
+			require(config.name() != null && !config.name().isBlank(), "module name is blank");
+			require(names.add(config.name()), "duplicate module name " + config.name());
+			require(config.driveId() > 0, config.name() + " drive CAN ID must be positive");
+			require(config.turnId() > 0, config.name() + " turn CAN ID must be positive");
+			require(canIds.add(config.driveId()), "duplicate CAN ID " + config.driveId() + " at " + config.name());
+			require(canIds.add(config.turnId()), "duplicate CAN ID " + config.turnId() + " at " + config.name());
+			if (hardware == Hardware.CTRE_MK5N) {
+				require(config.encoderId() > 0, config.name() + " CANcoder ID must be positive");
+				require(canIds.add(config.encoderId()),
+						"duplicate CAN ID " + config.encoderId() + " at " + config.name());
+			} else {
+				require(config.encoderId() >= 0 && config.encoderId() <= 3,
+						config.name() + " REV analog encoder channel must be 0-3");
+				require(analogChannels.add(config.encoderId()),
+						"duplicate analog encoder channel " + config.encoderId());
+			}
+			require(Double.isFinite(config.encoderOffsetRad()), config.name() + " encoder offset must be finite");
+			require(config.wheelDiameterMeters() > 0.05 && config.wheelDiameterMeters() < 0.3,
+					config.name() + " wheel diameter is implausible");
+			require(config.driveGearRatio() > 0.1 && config.driveGearRatio() < 100.0,
+					config.name() + " drive gear ratio is implausible");
+		}
+	}
+
+	private static boolean isFiniteNonNegative(double value) {
+		return Double.isFinite(value) && value >= 0.0;
+	}
+
+	private static void require(boolean condition, String message) {
+		if (!condition) {
+			throw new IllegalStateException("Hardware configuration error: " + message);
+		}
 	}
 }

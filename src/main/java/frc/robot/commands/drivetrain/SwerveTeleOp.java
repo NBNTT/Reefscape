@@ -2,12 +2,8 @@ package frc.robot.commands.drivetrain;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.PIDController;
-import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.GenericHID.RumbleType;
 import edu.wpi.first.wpilibj2.command.Command;
-import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.HeadingConstants;
 import frc.robot.Constants.OIConstants;
@@ -21,9 +17,9 @@ import java.util.function.DoubleSupplier;
  * drivetrain.
  *
  * <p>
- * Controls: right bumper = slow mode with rumble, left bumper = field/robot
- * oriented toggle, A = X-lock, Start/Back = reset heading (bound in
- * {@link frc.robot.RobotContainer}).
+ * Inputs are semantic suppliers supplied by {@link frc.robot.DriverControls};
+ * this command does not know which physical buttons produced them. Slow mode
+ * scales the request and rumbles, and a faulted drivetrain stays stopped.
  */
 public class SwerveTeleOp extends Command {
 	private final Swerve swerve;
@@ -35,10 +31,10 @@ public class SwerveTeleOp extends Command {
 	private final BooleanSupplier driverControlEnabled;
 	private final DoubleConsumer rumble;
 
-	/** Limits how fast the requested speed can change. */
-	private final SlewRateLimiter forwardLimiter;
-	private final SlewRateLimiter strafeLimiter;
-	private final SlewRateLimiter turnLimiter;
+	/** Fixed-step limits on how fast the requested speed can change. */
+	private double forwardLimited = 0.0;
+	private double strafeLimited = 0.0;
+	private double turnLimited = 0.0;
 
 	/**
 	 * Separate from the steering PID; holds a heading when the turn stick is
@@ -48,14 +44,6 @@ public class SwerveTeleOp extends Command {
 	private boolean headingHoldActive = false;
 	private double headingTargetRad = 0.0;
 	private ChassisSpeeds lastChassisSpeeds = new ChassisSpeeds();
-
-	/** Production constructor: reads the real controller. */
-	public SwerveTeleOp(Swerve swerve, CommandXboxController driver, BooleanSupplier robotOriented) {
-		this(swerve, () -> -driver.getLeftY(), () -> -driver.getLeftX(), () -> -driver.getRightX(),
-				() -> driver.rightBumper().getAsBoolean(), robotOriented,
-				() -> DriverStation.isTeleopEnabled() || DriverStation.isTestEnabled(), value -> driver.getHID()
-						.setRumble(value > 0.0 ? RumbleType.kRightRumble : RumbleType.kBothRumble, value));
-	}
 
 	/** Testable constructor: inject stick values, slow mode, and rumble. */
 	public SwerveTeleOp(Swerve swerve, DoubleSupplier forwardSupplier, DoubleSupplier strafeSupplier,
@@ -70,10 +58,6 @@ public class SwerveTeleOp extends Command {
 		this.driverControlEnabled = driverControlEnabled;
 		this.rumble = rumble;
 
-		forwardLimiter = new SlewRateLimiter(DriveConstants.kMaxAccelerationMetersPerSecondSquared);
-		strafeLimiter = new SlewRateLimiter(DriveConstants.kMaxAccelerationMetersPerSecondSquared);
-		turnLimiter = new SlewRateLimiter(DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared);
-
 		headingPID = new PIDController(HeadingConstants.kKp, HeadingConstants.kKi, HeadingConstants.kKd);
 		headingPID.enableContinuousInput(-Math.PI, Math.PI);
 
@@ -84,9 +68,7 @@ public class SwerveTeleOp extends Command {
 	@Override
 	public void initialize() {
 		// Start from zero whenever the command starts or resumes after X-lock.
-		forwardLimiter.reset(0.0);
-		strafeLimiter.reset(0.0);
-		turnLimiter.reset(0.0);
+		resetLimiters();
 		resetHeadingHold();
 		lastChassisSpeeds = new ChassisSpeeds();
 	}
@@ -95,14 +77,12 @@ public class SwerveTeleOp extends Command {
 	public void execute() {
 		// Default commands run in every mode; only the driver may drive in teleop or
 		// test.
-		if (!driverControlEnabled.getAsBoolean()) {
+		if (!driverControlEnabled.getAsBoolean() || !swerve.isDrivetrainHealthy()) {
 			resetHeadingHold();
 			lastChassisSpeeds = new ChassisSpeeds();
 			setRumble(false);
 			swerve.stopModules();
-			forwardLimiter.reset(0.0);
-			strafeLimiter.reset(0.0);
-			turnLimiter.reset(0.0);
+			resetLimiters();
 			return;
 		}
 
@@ -123,11 +103,12 @@ public class SwerveTeleOp extends Command {
 			turn *= OIConstants.kSlowModeFactor;
 		}
 
-		boolean robotOrientedNow = robotOriented.getAsBoolean();
+		boolean robotOrientedNow = robotOriented.getAsBoolean() || !swerve.isFieldOrientedAvailable();
 		boolean manualRotation = Math.abs(turnRaw) >= HeadingConstants.kManualTurnThreshold;
 		double requestedTurnRadPerSec;
 		if (robotOrientedNow || manualRotation) {
-			// Manual rotation always wins; heading hold is disabled in robot-oriented mode.
+			// Manual rotation always wins; heading hold is disabled in robot-oriented
+			// mode and while the gyro cannot provide field heading.
 			resetHeadingHold();
 			requestedTurnRadPerSec = turn * DriveConstants.kMaxAngularSpeedRadiansPerSecond;
 		} else {
@@ -142,9 +123,12 @@ public class SwerveTeleOp extends Command {
 		}
 
 		// Convert stick fractions to real units, then limit how fast they change.
-		forward = forwardLimiter.calculate(forward * DriveConstants.kMaxSpeedMetersPerSecond);
-		strafe = strafeLimiter.calculate(strafe * DriveConstants.kMaxSpeedMetersPerSecond);
-		double turnRadPerSec = turnLimiter.calculate(requestedTurnRadPerSec);
+		forward = forwardLimited = slew(forwardLimited, forward * DriveConstants.kMaxSpeedMetersPerSecond,
+				DriveConstants.kMaxAccelerationMetersPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
+		strafe = strafeLimited = slew(strafeLimited, strafe * DriveConstants.kMaxSpeedMetersPerSecond,
+				DriveConstants.kMaxAccelerationMetersPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
+		double turnRadPerSec = turnLimited = slew(turnLimited, requestedTurnRadPerSec,
+				DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
 
 		// Field-oriented uses the robot's current heading; robot-oriented does not.
 		ChassisSpeeds speeds = robotOrientedNow
@@ -167,6 +151,17 @@ public class SwerveTeleOp extends Command {
 	public void resetHeadingHold() {
 		headingHoldActive = false;
 		headingPID.reset();
+	}
+
+	/** Fixed-step acceleration limit; independent of test wall-clock time. */
+	private static double slew(double current, double target, double maxRate, double dt) {
+		return current + MathUtil.clamp(target - current, -maxRate * dt, maxRate * dt);
+	}
+
+	private void resetLimiters() {
+		forwardLimited = 0.0;
+		strafeLimited = 0.0;
+		turnLimited = 0.0;
 	}
 
 	/** Test-only view of the most recent chassis command. */

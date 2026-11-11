@@ -23,20 +23,35 @@
 - `SwerveTest`: forward driving and X-lock in simulation.
 - `SwerveControlTest`: module order/kinematics, gyro sign, pose resets, steering
   optimization, cosine compensation, stop behavior, vendor steering, teleop
-  interruption, vision gating, and measured velocity control.
+  interruption, input shaping, heading hold, health/fault recovery, delayed
+  vision, disabled reset, and measured velocity control.
+- `ConstantsTest`: startup wiring validation and the unfinished CTRE gate.
+- `SwerveTeleOpTest`: input shaping.
 
-## AdvantageKit and the linuxarm64 problem
+GitHub Actions runs the same formatting, compile, and desktop test suite from
+`.github/workflows/ci.yml` on every pull request and on `main`. The suite needs no
+robot, camera, or Driver Station.
 
-The repo originally used **AdvantageKit 4.0.0**. Its `AdvantageKit.json`
-listed `akit-wpilibio` platforms:
+## AdvantageKit, ARM64, and the JDK
+
+This build uses **JDK 17**, which is what WPILib/GradleRIO 2025 requires. Point
+`JAVA_HOME` at the WPILib JDK 17. A newer JDK (21 or 25) can fail during Gradle
+or annotation processing even when the source language level is 17; it is not a
+supported substitute for this project. This is separate from the native
+platform issue below.
+
+The repo originally used **AdvantageKit 4.0.0**. Its `AdvantageKit.json` listed
+`akit-wpilibio` platforms:
 
 ```text
 linuxathena, linuxx86-64, osxuniversal, windowsx86-64
 ```
 
-It did **not** list `linuxarm64`. A roboRIO 2 / ARM64 target therefore tried to
-resolve an `akit-wpilibio` native that did not exist in 4.0.0, producing a
-missing `linuxarm64` dependency error during dependency resolution or deploy.
+It did **not** list `linuxarm64`. That is a missing native for any ARM64 target
+or ARM64 build host, and it causes dependency resolution to fail when the build
+selects `linuxarm64`. It is not because the 2025 roboRIO target is ARM64: the
+roboRIO still uses `linuxathena`. Do not describe the roboRIO 2 as an ARM64
+target.
 
 The fix is **AdvantageKit 4.1.2 or newer**, whose vendor JSON lists:
 
@@ -55,6 +70,10 @@ is updated, update the other in the same commit. If a future WPILib/AK update
 reintroduces a platform mismatch, check `validPlatforms` in the vendor JSON
 first, then look at the annotation processor version, then run a clean build.
 
+A future SystemCore or other ARM64 controller also needs WPILib, Phoenix, REV,
+and AdvantageKit natives for that platform. Having `linuxarm64` in AdvantageKit
+is necessary but not sufficient; confirm every vendor before migrating.
+
 ### Verifying the fix
 
 ```bash
@@ -62,9 +81,9 @@ first, then look at the annotation processor version, then run a clean build.
 ./gradlew dependencies --configuration roborioRelease
 ```
 
-`roborioRelease` should resolve the AdvantageKit native for the target platform.
-For a linuxarm64 roboRIO, `vendordeps/AdvantageKit.json` must contain
-`linuxarm64` in `validPlatforms`.
+`roborioRelease` should resolve the AdvantageKit native for `linuxathena`. For
+an ARM64 host or target, the selected configuration must find `linuxarm64` in
+`vendordeps/AdvantageKit.json`.
 
 ## Known environment notes
 
