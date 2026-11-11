@@ -20,8 +20,9 @@ public class ResetHeading extends Command {
 
 	@Override
 	public void execute() {
-		swerve.resetHeading();
-		driveCommand.resetHeadingHold();
+		if (swerve.resetHeading()) {
+			driveCommand.resetHeadingHold();
+		}
 	}
 
 	@Override

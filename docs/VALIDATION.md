@@ -115,8 +115,8 @@ or field-oriented driving.
   drive-encoder stability, drive-voltage limits, vendor steering, measured
   velocity control, the autonomous foundation, vision gating and delayed-vision
   history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
-  module-fault safe stop, semantic mode transitions, disabled heading reset, and
-  CTRE steering wraparound.
+  module-fault safe stop, semantic mode transitions, disabled heading reset,
+  invalid/NaN inputs, zero-speed wheel hold, and CTRE steering wraparound.
 - `ConstantsTest` checks startup validation, including the unfinished CTRE gate.
 - `SwerveTeleOpTest` checks deadband continuity, squared response, sign
   preservation, and full-stick reach.
@@ -154,7 +154,8 @@ Do this on blocks first.
 6. Left bumper: field-oriented / robot-oriented toggle.
 7. Start (and Back): the current direction becomes field-forward; the pose
    heading and gyro both read zero. Back was the original 2025 binding.
-8. Release the sticks: the robot should stop and hold its wheel angles.
+8. Release the sticks: the robot should stop and hold the wheel angles it already
+   has; the wheels must not snap toward 45 degrees.
 9. Drive a short distance and turn: `Drive/Pose` and `Drive/Heading` should
    move in the expected direction.
 10. Release the turn stick: heading hold should keep the current direction while
@@ -192,6 +193,8 @@ Only then take the robot off blocks.
 - Start/Back resets the gyro and pose heading together and clears the held
   target; `Drive/HeadingResetCount` is logged. Both buttons work in Disabled,
   Teleop, and Test, and are intentionally not bound while Autonomous is running.
+  If the gyro rejects the reset, the pose heading is left alone and the failure
+  is reported.
 - Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
   autonomous, and whenever the gyro is unhealthy or its reading is invalid.
 - Steering PID gains, deadbands, and algorithms were intentionally not changed.

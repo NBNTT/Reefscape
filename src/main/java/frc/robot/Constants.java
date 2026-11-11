@@ -160,6 +160,9 @@ public final class Constants {
 		public static final int kDriveSmartCurrentLimitAmps = 40;
 		public static final int kTurnSmartCurrentLimitAmps = 40;
 		public static final double kVoltageCompensationVolts = 12.0;
+		/* A motor controller may be slow to answer right after power-up. */
+		public static final int kConfigRetries = 3;
+		public static final double kConfigRetryDelaySeconds = 0.02;
 		/* The analog encoder is assumed to span 0 V to the measured 5 V rail. */
 		public static final double kEncoderMinVolts = 0.01;
 		public static final double kEncoderMaxMarginVolts = 0.01;
@@ -367,6 +370,12 @@ public final class Constants {
 		require(RevConstants.kDriveSmartCurrentLimitAmps > 0, "REV drive current limit must be positive");
 		require(RevConstants.kTurnSmartCurrentLimitAmps > 0, "REV turn current limit must be positive");
 		require(RevConstants.kVoltageCompensationVolts > 0.0, "REV voltage compensation must be positive");
+		require(RevConstants.kConfigRetries > 0, "REV config retries must be positive");
+		require(RevConstants.kConfigRetryDelaySeconds >= 0.0, "REV retry delay must not be negative");
+		require(RevConstants.kEncoderMinVolts >= 0.0 && RevConstants.kEncoderMaxMarginVolts >= 0.0,
+				"REV encoder voltage margins must not be negative");
+		require(RevConstants.kMinReferenceVoltageVolts > 0.0 && RevConstants.kMinReferenceVoltageVolts < 5.5,
+				"REV encoder reference voltage threshold is implausible");
 		require(CtreConstants.kDriveSupplyCurrentLimitAmps > 0.0, "CTRE drive supply limit must be positive");
 		require(CtreConstants.kDriveStatorCurrentLimitAmps > 0.0, "CTRE drive stator limit must be positive");
 		require(CtreConstants.kTurnSupplyCurrentLimitAmps > 0.0, "CTRE turn supply limit must be positive");

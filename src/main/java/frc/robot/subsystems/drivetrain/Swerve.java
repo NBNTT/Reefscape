@@ -191,6 +191,19 @@ public class Swerve extends SubsystemBase {
 
 	/** Turns a robot-relative speed request into four wheel commands. */
 	public void setModuleStates(ChassisSpeeds chassisSpeeds) {
+		if (chassisSpeeds == null || !isFinite(chassisSpeeds)) {
+			stopModules();
+			Logger.recordOutput("Drive/DriveBlockedReason", "invalid chassis speeds");
+			return;
+		}
+		if (Math.abs(chassisSpeeds.vxMetersPerSecond) < 1e-9 && Math.abs(chassisSpeeds.vyMetersPerSecond) < 1e-9
+				&& Math.abs(chassisSpeeds.omegaRadiansPerSecond) < 1e-9) {
+			// WPILib's zero-speed kinematics point each wheel at its module heading,
+			// which would snap a stopped robot toward an X. Hold the current angles.
+			stopModules();
+			Logger.recordOutput("Drive/RequestedChassisSpeeds", chassisSpeeds);
+			return;
+		}
 		// While the robot is rotating, the wheels must follow a slight curve over
 		// the next 20 ms. Discretize corrects for that instead of treating the
 		// motion as a straight line.
@@ -208,6 +221,11 @@ public class Swerve extends SubsystemBase {
 	 * fallback, handled by the teleop command.
 	 */
 	public void setModuleStates(SwerveModuleState[] desiredStates) {
+		if (desiredStates == null || desiredStates.length != modules.length || !allStatesFinite(desiredStates)) {
+			stopModules();
+			Logger.recordOutput("Drive/DriveBlockedReason", "invalid module setpoints");
+			return;
+		}
 		if (!isDrivetrainHealthy()) {
 			stopModules();
 			Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
@@ -280,6 +298,11 @@ public class Swerve extends SubsystemBase {
 	 * the reset.
 	 */
 	public void resetPose(Pose2d pose) {
+		if (pose == null || !isFinite(pose)) {
+			DriverStation.reportError("Refusing invalid pose reset", false);
+			stopModules();
+			return;
+		}
 		for (SwerveModule module : modules) {
 			module.resetDrivePosition();
 		}
@@ -294,11 +317,17 @@ public class Swerve extends SubsystemBase {
 	 * Makes the robot's current direction the new field-forward heading. The gyro,
 	 * pose estimator, and field-oriented driving all use the same zero afterward.
 	 * The field position and drive encoders are left alone.
+	 *
+	 * @return true if the gyro accepted the reset and the pose was updated
 	 */
-	public void resetHeading() {
-		gyroIO.resetYaw();
+	public boolean resetHeading() {
+		boolean resetOk = gyroIO.resetYaw();
 		gyroIO.updateInputs(gyroInputs);
 		updateGyroHealth();
+		if (!resetOk || !gyroReadingValid) {
+			DriverStation.reportError("Heading reset failed; pose heading was not changed", false);
+			return false;
+		}
 		Pose2d currentPose = getPose();
 		poseEstimator.resetPosition(new Rotation2d(effectiveYawRad()), getModulePositions(),
 				new Pose2d(currentPose.getTranslation(), new Rotation2d()));
@@ -307,6 +336,7 @@ public class Swerve extends SubsystemBase {
 		poseHistory.reset(now, getPose());
 		headingResetCount++;
 		Logger.recordOutput("Drive/HeadingResetCount", headingResetCount);
+		return true;
 	}
 
 	/**
@@ -400,6 +430,21 @@ public class Swerve extends SubsystemBase {
 	private static boolean isFinite(Pose2d pose) {
 		return Double.isFinite(pose.getX()) && Double.isFinite(pose.getY())
 				&& Double.isFinite(pose.getRotation().getRadians());
+	}
+
+	private static boolean isFinite(ChassisSpeeds speeds) {
+		return Double.isFinite(speeds.vxMetersPerSecond) && Double.isFinite(speeds.vyMetersPerSecond)
+				&& Double.isFinite(speeds.omegaRadiansPerSecond);
+	}
+
+	private static boolean allStatesFinite(SwerveModuleState[] states) {
+		for (SwerveModuleState state : states) {
+			if (state == null || state.angle == null || !Double.isFinite(state.speedMetersPerSecond)
+					|| !Double.isFinite(state.angle.getRadians())) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static boolean isValidStdDevs(Matrix<N3, N1> stdDevs) {

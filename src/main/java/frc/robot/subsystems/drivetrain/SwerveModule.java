@@ -129,6 +129,11 @@ public class SwerveModule {
 	 * {@code optimize} picks the shorter path. Call this every command cycle.
 	 */
 	public void setDesiredState(SwerveModuleState state) {
+		if (state == null || state.angle == null || !Double.isFinite(state.speedMetersPerSecond)
+				|| !Double.isFinite(state.angle.getRadians())) {
+			stop();
+			return;
+		}
 		if (!healthy || !readingValid) {
 			stop();
 			return;

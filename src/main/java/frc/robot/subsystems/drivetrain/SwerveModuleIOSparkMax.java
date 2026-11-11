@@ -11,6 +11,7 @@ import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.wpilibj.AnalogInput;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotController;
+import edu.wpi.first.wpilibj.Timer;
 import frc.robot.Constants.RevConstants;
 import frc.robot.Constants.SwerveModuleConfig;
 
@@ -56,7 +57,7 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 
 		absoluteEncoder = new AnalogInput(config.encoderId());
 		// Distance is measured from where the robot starts.
-		driveMotor.getEncoder().setPosition(0.0);
+		resetDrivePosition();
 
 		hardwareFault = buildFault();
 	}
@@ -121,17 +122,29 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 
 	@Override
 	public void resetDrivePosition() {
-		driveMotor.getEncoder().setPosition(0.0);
+		REVLibError error = driveMotor.getEncoder().setPosition(0.0);
+		if (error != REVLibError.kOk) {
+			DriverStation.reportWarning("Failed to reset drive encoder on SparkMax " + config.driveId() + ": " + error,
+					false);
+		}
 	}
 
-	/** Applies one complete configuration and reports the result. */
+	/** Applies one complete configuration, retrying transient failures. */
 	private static boolean configure(SparkMax motor, SparkMaxConfig config, String device) {
-		REVLibError error = motor.configure(config, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
-		if (error != REVLibError.kOk) {
-			DriverStation.reportError("Failed to configure " + device + ": " + error, false);
-			return false;
+		REVLibError error = REVLibError.kError;
+		for (int attempt = 1; attempt <= RevConstants.kConfigRetries; attempt++) {
+			error = motor.configure(config, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+			if (error == REVLibError.kOk) {
+				return true;
+			}
+			if (attempt < RevConstants.kConfigRetries) {
+				Timer.delay(RevConstants.kConfigRetryDelaySeconds);
+			}
 		}
-		return true;
+		DriverStation.reportError(
+				"Failed to configure " + device + " after " + RevConstants.kConfigRetries + " attempts: " + error,
+				false);
+		return false;
 	}
 
 	private String buildFault() {

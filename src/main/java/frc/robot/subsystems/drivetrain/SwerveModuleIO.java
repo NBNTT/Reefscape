@@ -28,12 +28,12 @@ public interface SwerveModuleIO {
 		public double absoluteEncoderReferenceVoltage = 0.0;
 
 		/*
-		 * Each implementation must clear the flags it cannot prove. Defaults are
-		 * optimistic so a simple simulation does not need to set every field.
+		 * Each implementation must set the flags it can prove. Defaults are false so a
+		 * new IO that forgets a status check is treated as unhealthy, not healthy.
 		 */
-		public boolean driveConnected = true;
-		public boolean turnConnected = true;
-		public boolean hardwareConfigured = true;
+		public boolean driveConnected = false;
+		public boolean turnConnected = false;
+		public boolean hardwareConfigured = false;
 		public boolean absoluteEncoderConnected = false;
 		/*
 		 * Empty when the hardware is healthy; otherwise a short human-readable reason.

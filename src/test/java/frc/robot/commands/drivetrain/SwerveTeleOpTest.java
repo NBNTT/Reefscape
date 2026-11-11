@@ -34,6 +34,13 @@ class SwerveTeleOpTest {
 	}
 
 	@Test
+	void nonFiniteInputIsTreatedAsZero() {
+		assertEquals(0.0, SwerveTeleOp.shapeInput(Double.NaN, 0.1), 1e-12);
+		assertEquals(0.0, SwerveTeleOp.shapeInput(Double.POSITIVE_INFINITY, 0.1), 1e-12);
+		assertEquals(0.0, SwerveTeleOp.shapeInput(Double.NEGATIVE_INFINITY, 0.1), 1e-12);
+	}
+
+	@Test
 	void lowStickIsFinerButStillMoves() {
 		double shaped = SwerveTeleOp.shapeInput(0.5, 0.1);
 		assertTrue(shaped > 0.0);

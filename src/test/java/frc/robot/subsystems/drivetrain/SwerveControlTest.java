@@ -757,6 +757,88 @@ class SwerveControlTest {
 		assertEquals(CtreConstants.kConfigRetries, attempts.get());
 	}
 
+	@Test
+	void invalidChassisSpeedsAndSetpointsStopTheDrivetrain() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		swerve.setModuleStates(new ChassisSpeeds(Double.NaN, 0.0, 0.0));
+		for (FakeModuleIO io : ios) {
+			assertEquals(0.0, io.driveVoltage, 1e-9);
+			assertEquals(0.0, io.turnOutput, 1e-9);
+		}
+
+		swerve.setModuleStates(new SwerveModuleState[]{new SwerveModuleState(1.0, new Rotation2d()),
+				new SwerveModuleState(Double.NaN, new Rotation2d()), new SwerveModuleState(0.0, new Rotation2d()),
+				new SwerveModuleState(0.0, new Rotation2d())});
+		for (FakeModuleIO io : ios) {
+			assertEquals(0.0, io.driveVoltage, 1e-9);
+			assertEquals(0.0, io.turnOutput, 1e-9);
+		}
+	}
+
+	@Test
+	void nonFiniteTeleopInputsAreTreatedAsZero() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> Double.NaN, () -> Double.NaN, () -> Double.NaN,
+				() -> false, () -> false, () -> true, value -> {
+				});
+		command.initialize();
+		command.execute();
+
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-9);
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().vyMetersPerSecond, 1e-9);
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
+		for (FakeModuleIO io : ios) {
+			assertEquals(0.0, io.driveVoltage, 1e-9);
+			assertEquals(0.0, io.turnOutput, 1e-9);
+		}
+	}
+
+	@Test
+	void headingResetFailureLeavesPoseAlone() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		gyro.yawRad = 0.7;
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		swerve.periodic();
+		double headingBefore = swerve.getHeading().getRadians();
+
+		gyro.resetSucceeds = false;
+		assertFalse(swerve.resetHeading());
+
+		assertEquals(headingBefore, swerve.getHeading().getRadians(), 1e-9);
+		assertEquals(1, gyro.resetCount);
+	}
+
+	@Test
+	void invalidPoseResetIsIgnored() {
+		Swerve swerve = new Swerve(createFakeModules(), new FakeGyroIO());
+		Pose2d before = swerve.getPose();
+
+		swerve.resetPose(new Pose2d(Double.NaN, 0.0, new Rotation2d()));
+
+		assertEquals(before.getX(), swerve.getPose().getX(), 1e-9);
+		assertEquals(before.getY(), swerve.getPose().getY(), 1e-9);
+	}
+
+	@Test
+	void zeroSpeedsHoldTheCurrentWheelAngles() {
+		FakeModuleIO[] ios = createFakeModules();
+		for (FakeModuleIO io : ios) {
+			io.turnAbsolutePositionRad = 0.3;
+		}
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		swerve.setModuleStates(new ChassisSpeeds());
+
+		for (int i = 0; i < ios.length; i++) {
+			assertEquals(0.3, swerve.getModuleForTesting(i).getSetpointForTesting().angle.getRadians(), 1e-9);
+			assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+			assertEquals(0.0, ios[i].turnOutput, 1e-9);
+		}
+	}
+
 	private static void assertDrivingMatches(double headingRad, boolean robotOriented) {
 		FakeGyroIO gyro = new FakeGyroIO();
 		Swerve swerve = new Swerve(createFakeModules(), gyro);
@@ -877,6 +959,7 @@ class SwerveControlTest {
 		double yawRad;
 		int resetCount;
 		boolean connected = true;
+		boolean resetSucceeds = true;
 
 		@Override
 		public void updateInputs(GyroIOInputs inputs) {
@@ -885,9 +968,12 @@ class SwerveControlTest {
 		}
 
 		@Override
-		public void resetYaw() {
-			yawRad = 0.0;
+		public boolean resetYaw() {
 			resetCount++;
+			if (resetSucceeds) {
+				yawRad = 0.0;
+			}
+			return resetSucceeds;
 		}
 	}
 }

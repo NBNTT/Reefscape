@@ -53,10 +53,10 @@ changing `DriverControls.toggleRobotOriented()`.
 - Startup validates the active module IDs, encoder channels, offsets, wheel
   diameter, gearing, gains, CAN bus, and current limits. Selecting CTRE while
   `kCtreConfigured` is false aborts before hardware is created.
-- CTRE configuration is applied with retries and every status is checked. A
-  failed TalonFX/CANcoder configuration is reported and disables the affected
-  module. Phoenix status signals are refreshed and checked every cycle, not just
-  the encoder connection flag.
+- CTRE and REV configuration is applied with retries and every status is checked.
+  A failed TalonFX/CANcoder/SparkMax configuration is reported and disables the
+  affected module. Phoenix status signals are refreshed and checked every cycle,
+  not just the encoder connection flag.
 - A disconnected, non-finite, or implausibly jumping absolute encoder is never
   used for steering. The module neutralizes immediately, reports a fault after
   100 ms, and recovers after 200 ms of good readings.
@@ -105,6 +105,9 @@ live in `Constants.VisionConstants` and must be updated for a new game. See
 - The old `1 / 0.8` and `1 / 0.9` raw-input boost was removed.
 - Translation and rotation acceleration limits remain separate and configurable.
   They use a fixed 20 ms step, so tests do not depend on wall-clock timing.
+- A zero speed request holds the current wheel angles instead of snapping to the
+  module-heading angles that WPILib's zero-speed kinematics returns.
+- Non-finite stick or command inputs are treated as zero, not passed to motors.
 - Requested chassis speeds are discretized over the 20 ms loop.
 - Steering setpoints use the shortest path and cosine compensation; steering
   gains were not changed.
@@ -116,7 +119,8 @@ live in `Constants.VisionConstants` and must be updated for a new game. See
   Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
   autonomous, and whenever field heading is unavailable.
 - Start/Back resets the gyro and pose heading together and clears the held
-  heading in Disabled, Teleop, and Test.
+  heading in Disabled, Teleop, and Test. If the gyro rejects the reset, the pose
+  heading is left alone and the failure is reported.
 - The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
   steering in the TalonFX with a continuous target wrapped to the closest
   rotation.
@@ -165,7 +169,8 @@ drive-encoder stability, drive-voltage limits, vendor steering, measured
 velocity control, the autonomous foundation, vision gating, delayed-vision
 history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
 module-fault safe stop, semantic mode transitions, disabled heading reset,
-startup validation, and CTRE steering wraparound.
+invalid/NaN inputs, zero-speed wheel hold, startup validation, and CTRE
+steering wraparound.
 
 GitHub Actions runs `spotlessCheck build` on every pull request and on `main`.
 No robot or camera is needed for the offline test suite.

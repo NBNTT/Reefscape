@@ -90,7 +90,11 @@ public class SwerveTeleOp extends Command {
 		// low-speed control while still reaching 1.0 at full stick.
 		double forward = shapeInput(forwardSupplier.getAsDouble(), OIConstants.kDeadband);
 		double strafe = shapeInput(strafeSupplier.getAsDouble(), OIConstants.kDeadband);
-		double turnInput = MathUtil.clamp(turnSupplier.getAsDouble(), -1.0, 1.0);
+		double turnInput = turnSupplier.getAsDouble();
+		if (!Double.isFinite(turnInput)) {
+			turnInput = 0.0;
+		}
+		turnInput = MathUtil.clamp(turnInput, -1.0, 1.0);
 		double turnRaw = MathUtil.applyDeadband(turnInput, OIConstants.kDeadband);
 		double turn = Math.copySign(turnRaw * turnRaw, turnRaw);
 
@@ -178,6 +182,9 @@ public class SwerveTeleOp extends Command {
 	 * Deadband-rescale then square, preserving sign and reaching 1.0 at full stick.
 	 */
 	static double shapeInput(double raw, double deadband) {
+		if (!Double.isFinite(raw)) {
+			return 0.0;
+		}
 		double clamped = MathUtil.clamp(raw, -1.0, 1.0);
 		double deadbanded = MathUtil.applyDeadband(clamped, deadband);
 		return Math.copySign(deadbanded * deadbanded, deadbanded);

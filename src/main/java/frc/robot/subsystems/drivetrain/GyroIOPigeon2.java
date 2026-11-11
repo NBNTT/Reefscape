@@ -17,6 +17,7 @@ public class GyroIOPigeon2 implements GyroIO {
 	private final Pigeon2 gyro;
 	private final StatusSignal<Angle> yaw;
 	private final StatusSignal<AngularVelocity> yawRate;
+	private boolean resetOk = true;
 
 	public GyroIOPigeon2(int id, String canBus) {
 		gyro = canBus.isEmpty() ? new Pigeon2(id) : new Pigeon2(id, canBus);
@@ -37,15 +38,17 @@ public class GyroIOPigeon2 implements GyroIO {
 	public void updateInputs(GyroIOInputs inputs) {
 		StatusCode refreshStatus = BaseStatusSignal.refreshAll(yaw, yawRate);
 		inputs.yawRad = yaw.getValueAsDouble();
-		inputs.connected = refreshStatus.isOK() && BaseStatusSignal.isAllGood(yaw, yawRate)
+		inputs.connected = resetOk && refreshStatus.isOK() && BaseStatusSignal.isAllGood(yaw, yawRate)
 				&& Double.isFinite(inputs.yawRad);
 	}
 
 	@Override
-	public void resetYaw() {
+	public boolean resetYaw() {
 		StatusCode status = gyro.getConfigurator().setYaw(0.0);
-		if (!status.isOK()) {
+		resetOk = status.isOK();
+		if (!resetOk) {
 			DriverStation.reportError("Failed to reset Pigeon 2 yaw: " + status.getName(), false);
 		}
+		return resetOk;
 	}
 }

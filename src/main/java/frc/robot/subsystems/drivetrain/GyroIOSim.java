@@ -28,7 +28,8 @@ public class GyroIOSim implements GyroIO {
 	}
 
 	@Override
-	public void resetYaw() {
+	public boolean resetYaw() {
 		yawRad = 0.0;
+		return true;
 	}
 }

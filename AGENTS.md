@@ -32,6 +32,10 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   gated by `Constants.kCtreConfigured = false`.
 - Drive control is measured wheel velocity with feedforward; do not reintroduce
   open-loop percent output or SparkMax onboard velocity control.
+- Zero chassis speeds hold the current wheel angles. Do not pass WPILib's
+  zero-speed module headings straight to the modules; they snap the wheels.
+- Non-finite stick, speed, pose, or module-state inputs must be treated as zero
+  or rejected before they reach a motor.
 - Stick input uses deadband rescaling plus a squared response; do not re-add the
   old `1 / 0.8` or `1 / 0.9` raw boost. Full stick must still reach the
   configured maximum.
