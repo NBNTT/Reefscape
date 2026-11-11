@@ -4,7 +4,7 @@ import edu.wpi.first.math.MathUtil;
 import frc.robot.Constants.DriveConstants;
 
 /**
- * Simple simulated module. The drive motor follows the commanded output
+ * Simple simulated module. The drive motor follows the commanded voltage
  * instantly and the steering motor is first-order. Good enough to exercise the
  * real drivetrain, odometry, and command code in desktop simulation and tests.
  */
@@ -18,14 +18,14 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 	private double driveVelocityMetersPerSec = 0.0;
 	private double turnPositionRad = 0.0;
 	private double turnVelocityRadPerSec = 0.0;
-	private double driveOutput = 0.0;
+	private double driveVoltage = 0.0;
 	private double turnOutput = 0.0;
 
 	@Override
 	public void updateInputs(SwerveModuleIOInputs inputs) {
-		// Pretend the drive motor instantly reaches the requested speed, then
-		// integrate distance traveled.
-		driveVelocityMetersPerSec = driveOutput * DriveConstants.kMaxSpeedMetersPerSecond;
+		// Pretend 12 V means top speed; the real robot's feedforward/PID makes
+		// this a reasonable approximation for tests.
+		driveVelocityMetersPerSec = driveVoltage / 12.0 * DriveConstants.kMaxSpeedMetersPerSecond;
 		drivePositionMeters += driveVelocityMetersPerSec * kDt;
 
 		// Steering is a simple rate-limited angle change.
@@ -34,8 +34,8 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 
 		inputs.drivePositionMeters = drivePositionMeters;
 		inputs.driveVelocityMetersPerSec = driveVelocityMetersPerSec;
-		inputs.driveAppliedVolts = driveOutput * 12.0;
-		inputs.driveCurrentAmps = Math.abs(driveOutput) * 40.0;
+		inputs.driveAppliedVolts = driveVoltage;
+		inputs.driveCurrentAmps = Math.abs(driveVoltage) / 12.0 * 40.0;
 		inputs.driveTempCelsius = 25.0;
 
 		inputs.turnAbsolutePositionRad = turnPositionRad;
@@ -47,8 +47,8 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 	}
 
 	@Override
-	public void setDriveOutput(double output) {
-		driveOutput = MathUtil.clamp(output, -1.0, 1.0);
+	public void setDriveVoltage(double volts) {
+		driveVoltage = MathUtil.clamp(volts, -12.0, 12.0);
 	}
 
 	@Override

@@ -1,7 +1,7 @@
-# Reefscape 2025 — Agent Rules
+# Reefscape Drivetrain — Agent Rules
 
-FRC team **8567** robot code. Java 17, WPILib 2025, command-based.
-Branch: `main`.
+FRC team **8567** drivetrain code. Java 17, WPILib 2025, command-based.
+Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 
 - `origin` → `https://github.com/NBNTT/Reefscape.git` (your fork)
 - `upstream` → `https://github.com/ultraviolet8567/Reefscape.git` (team)
@@ -10,7 +10,7 @@ Branch: `main`.
 
 ```bash
 ./gradlew build                 # compile + spotless + test
-./gradlew test                  # simulation smoke test
+./gradlew test                  # simulation and logic tests
 ./gradlew simulateJava          # desktop sim (run on the host, not the devbox)
 ./gradlew deploy                # roboRIO, disabled robot only
 ./gradlew spotlessApply         # fix formatting
@@ -19,12 +19,18 @@ Branch: `main`.
 ## Stack
 
 - GradleRIO **2025.1.1**, Java 17.
-- AdvantageKit, Phoenix6 **25.2.0**, REVLib **2025.0.1**.
+- AdvantageKit **4.1.2** (required for `linuxarm64`), Phoenix6 **25.2.0**,
+  REVLib **2025.0.1**. The `akit-autolog` processor in `build.gradle` must match
+  the vendor JSON version.
 - No PathPlanner in this season.
 - Source: `Swerve`, `SwerveModule`, `SwerveModuleIO*`, `GyroIO*`,
-  `SwerveTeleOp`, `Constants`, `RobotContainer`.
+  `SwerveTeleOp`, `Autos`, `Constants`, `RobotContainer`.
 - Hardware: `Constants.kHardware = REV_MK4N` is the 2024 test robot;
   `CTRE_MK5N` is the future Kraken robot and needs real IDs/offsets filled.
+- Drive control is measured wheel velocity with feedforward; do not reintroduce
+  open-loop percent output.
+- Vision must go through `Swerve.addVisionMeasurement` so age, order,
+  covariance, jump gates, and accepted/rejected logs are preserved.
 
 ## Read first
 
@@ -41,7 +47,7 @@ Branch: `main`.
   approval — it is wiring, not code.
 - Units are meters, radians, seconds. Convert at the boundary with `Units`.
 - Log telemetry with AdvantageKit `Logger.recordOutput`, not `System.out`.
-- Every mechanism needs a simulation path and a `simulationPeriodic()`.
+- Every mechanism needs a simulation path (an IO sim or `simulationPeriodic()`).
 - Alliance logic must use `FieldConstants` / `AllianceFlipUtil` when game code
   is added. Never hardcode Red/Blue. With no Driver Station, default to Blue.
 - Declare `addRequirements(...)` correctly and clean up in `end(interrupted)`.
@@ -53,9 +59,12 @@ Branch: `main`.
 
 ## Verification
 
-- There is a simulation smoke test suite (`SwerveTest`). Expand it before
-  changing behavior (or get explicit approval to change untested code).
-- `./gradlew build` proves compile + formatting + the simulation test.
+- `SwerveTest` covers simulation driving and X-lock. `SwerveControlTest` covers
+  module order/kinematics, gyro sign, pose resets, steering optimization,
+  cosine compensation, stop behavior, teleop interruption, vendor steering,
+  measured velocity control, and vision gating. Expand them before changing
+  behavior.
+- `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.
 - Never claim a deploy succeeded without checking the RioLog.

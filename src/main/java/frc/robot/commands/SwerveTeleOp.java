@@ -11,6 +11,8 @@ import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.OIConstants;
 import frc.robot.subsystems.Swerve;
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleConsumer;
+import java.util.function.DoubleSupplier;
 
 /**
  * Default drivetrain command. It runs whenever no other command is using the
@@ -23,18 +25,39 @@ import java.util.function.BooleanSupplier;
  */
 public class SwerveTeleOp extends Command {
 	private final Swerve swerve;
-	private final CommandXboxController driver;
-	/** True when the driver wants robot-oriented instead of field-oriented. */
+	private final DoubleSupplier forwardSupplier;
+	private final DoubleSupplier strafeSupplier;
+	private final DoubleSupplier turnSupplier;
+	private final BooleanSupplier slowModeSupplier;
 	private final BooleanSupplier robotOriented;
+	private final BooleanSupplier driverControlEnabled;
+	private final DoubleConsumer rumble;
+
 	/** Limits how fast the requested speed can change. */
 	private final SlewRateLimiter forwardLimiter;
 	private final SlewRateLimiter strafeLimiter;
 	private final SlewRateLimiter turnLimiter;
 
+	/** Production constructor: reads the real controller. */
 	public SwerveTeleOp(Swerve swerve, CommandXboxController driver, BooleanSupplier robotOriented) {
+		this(swerve, () -> -driver.getLeftY(), () -> -driver.getLeftX(), () -> -driver.getRightX(),
+				() -> driver.rightBumper().getAsBoolean(), robotOriented,
+				() -> DriverStation.isTeleopEnabled() || DriverStation.isTestEnabled(), value -> driver.getHID()
+						.setRumble(value > 0.0 ? RumbleType.kRightRumble : RumbleType.kBothRumble, value));
+	}
+
+	/** Testable constructor: inject stick values, slow mode, and rumble. */
+	public SwerveTeleOp(Swerve swerve, DoubleSupplier forwardSupplier, DoubleSupplier strafeSupplier,
+			DoubleSupplier turnSupplier, BooleanSupplier slowModeSupplier, BooleanSupplier robotOriented,
+			BooleanSupplier driverControlEnabled, DoubleConsumer rumble) {
 		this.swerve = swerve;
-		this.driver = driver;
+		this.forwardSupplier = forwardSupplier;
+		this.strafeSupplier = strafeSupplier;
+		this.turnSupplier = turnSupplier;
+		this.slowModeSupplier = slowModeSupplier;
 		this.robotOriented = robotOriented;
+		this.driverControlEnabled = driverControlEnabled;
+		this.rumble = rumble;
 
 		forwardLimiter = new SlewRateLimiter(DriveConstants.kMaxAccelerationMetersPerSecondSquared);
 		strafeLimiter = new SlewRateLimiter(DriveConstants.kMaxAccelerationMetersPerSecondSquared);
@@ -56,7 +79,7 @@ public class SwerveTeleOp extends Command {
 	public void execute() {
 		// Default commands run in every mode; only the driver may drive in teleop or
 		// test.
-		if (!DriverStation.isTeleopEnabled() && !DriverStation.isTestEnabled()) {
+		if (!driverControlEnabled.getAsBoolean()) {
 			setRumble(false);
 			swerve.stopModules();
 			forwardLimiter.reset(0.0);
@@ -65,11 +88,11 @@ public class SwerveTeleOp extends Command {
 			return;
 		}
 
-		// WPILib axes: +X is forward and +Y is left. The sticks report the
-		// opposite sign, so negate them here.
-		double forward = -driver.getLeftY();
-		double strafe = -driver.getLeftX();
-		double turn = -driver.getRightX();
+		// WPILib axes: +X is forward and +Y is left. The supplied values are
+		// already mapped to that convention.
+		double forward = forwardSupplier.getAsDouble();
+		double strafe = strafeSupplier.getAsDouble();
+		double turn = turnSupplier.getAsDouble();
 
 		// Use the combined stick distance so pure sideways strafing is not
 		// mistaken for "no input".
@@ -89,7 +112,7 @@ public class SwerveTeleOp extends Command {
 		turn = MathUtil.clamp(turn, -1.0, 1.0);
 
 		// Right bumper: scale everything down and give the driver feedback.
-		boolean slowMode = driver.rightBumper().getAsBoolean();
+		boolean slowMode = slowModeSupplier.getAsBoolean();
 		setRumble(slowMode);
 		if (slowMode) {
 			forward *= OIConstants.kSlowModeFactor;
@@ -118,7 +141,6 @@ public class SwerveTeleOp extends Command {
 
 	/** Right-side rumble while slow mode is held; both sides off otherwise. */
 	private void setRumble(boolean slowMode) {
-		driver.getHID().setRumble(slowMode ? RumbleType.kRightRumble : RumbleType.kBothRumble,
-				slowMode ? OIConstants.kRumble : 0.0);
+		rumble.accept(slowMode ? OIConstants.kRumble : 0.0);
 	}
 }

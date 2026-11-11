@@ -1,27 +1,25 @@
 # Team 8567 Drivetrain
 
-This project is the drivetrain-only base for the 2024 test robot and the
-2026-2027 robot.
+Drivetrain-only base for the 2024 test robot and the future 2026-2027 robot.
+The old robot uses REV MK4n hardware; the future robot uses CTRE MK5n with
+Kraken X60/X44 motors. The same drivetrain logic runs both through a hardware
+IO layer.
 
-## Current robot
+## Documentation
 
-The 2024 test robot uses the **REV MK4n** path, which is selected by
-`Constants.kHardware = Hardware.REV_MK4N`. The CAN IDs, encoder channels,
-offsets, gearing, and speed limits are the team's last known-working REV
-values.
+- [Build and test environment](docs/BUILD.md) — JDK, WPILib, AdvantageKit
+  linuxarm64 fix, commands, deploy notes.
+- [Calibration, simulation, deployment, and validation](docs/VALIDATION.md) —
+  the full bench and field checklist.
 
-## Future robot
+## Hardware paths
 
-The future robot uses **CTRE MK5n** with Kraken X60 drive motors, Kraken X44
-turn motors, and CANcoders. Before switching:
+The active path is selected by `Constants.kHardware`.
 
-1. Fill in the CTRE IDs in `Constants.CAN`.
-2. Fill in the CTRE module offsets, wheel diameter, and gear ratio in
-   `Constants.DriveConstants.kCtreModuleConfigs` and `Constants.ModuleConstants`.
-3. Change `Constants.kHardware` to `Hardware.CTRE_MK5N`.
-4. Verify every wheel direction and offset on blocks before driving.
-
-The CTRE code compiles today but is not tested on hardware.
+- `REV_MK4N`: the 2024 test robot. This is active now.
+- `CTRE_MK5N`: the future Kraken robot. The code compiles, but the CTRE IDs,
+  offsets, wheel size, gearing, current limits, and steering gains are
+  placeholders. Fill them before enabling.
 
 ## Driver controls
 
@@ -33,32 +31,66 @@ The CTRE code compiles today but is not tested on hardware.
 | A | X-lock |
 | Left bumper | Toggle field-oriented / robot-oriented |
 
-The new Ultimate 3C+ controller's extra buttons are not mapped yet. To move the
-robot-oriented toggle to one of them, change the `driver.leftBumper()` binding in
+The Ultimate 3C+ extra buttons are not mapped yet. Move the robot-oriented
+toggle to one of them by changing the `driver.leftBumper()` binding in
 `RobotContainer`.
 
-## Calibration
+## Autonomous
 
-All module angles come from the absolute encoder. To check an offset:
+The dashboard **Auto** chooser defaults to **Do Nothing**. **Drive Forward**
+resets the pose, drives robot-relative at 1 m/s for 2 seconds, and stops.
 
-1. Put the robot on blocks and point all four wheels straight forward.
-2. Open AdvantageScope and look at `Drive/Module0` through `Drive/Module3`.
-3. `turnAbsolutePositionRad` should be close to `0`. If it is not, adjust that
-   module's `encoderOffsetRad` in `Constants.DriveConstants.kRevModuleConfigs`.
-4. Check `absoluteEncoderConnected` is `true` for every module.
-5. Command a slow forward motion on blocks; every
-   `driveVelocityMetersPerSec` should be positive. If one is negative, that
-   module's drive inversion or encoder direction is wrong.
+Add game autos in `Autos` and register them in `RobotContainer`.
 
-## Build and test
+## Vision
+
+Vision is a foundation, not a camera implementation yet. A future camera calls:
+
+```java
+swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTagDistanceMeters);
+```
+
+`Swerve` filters stale, future, out-of-order, low-tag, invalid-covariance, and
+large-jump measurements, then logs `Vision/Accepted`, `Vision/RejectedReason`,
+and accepted/rejected counts. See `docs/VALIDATION.md`.
+
+## Drive control
+
+- Requested chassis speeds are discretized over the 20 ms loop.
+- Steering setpoints use the shortest path and cosine compensation.
+- Drive speed uses measured wheel velocity with feedforward and feedback, not a
+  fixed percent output.
+- The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
+  steering in the TalonFX.
+- Teleop is blocked in Autonomous and Disabled.
+
+## Build, test, and deploy
 
 ```bash
 ./gradlew spotlessApply
-./gradlew build
-./gradlew test
-./gradlew simulateJava       # run on the host, not the devbox
-./gradlew deploy             # only while disabled
+./gradlew build          # compile, formatting, and all tests
+./gradlew test           # simulation and logic tests
+./gradlew simulateJava   # run on the host, not the devbox
+./gradlew deploy         # only while the robot is disabled
 ```
 
-`./gradlew test` runs a simulation smoke test that drives the drivetrain
-forward and checks the pose. It does not replace testing on the robot.
+The test suite covers forward driving, X-lock, module order/kinematics, gyro
+sign, pose resets, steering optimization, cosine compensation, stop behavior,
+teleop interruption, vendor steering, measured velocity control, and vision
+gating.
+
+The robot now logs measured versus requested chassis speeds, per-module
+steering/speed error, loop time, battery voltage, and all module inputs.
+
+## AdvantageKit note
+
+This repo uses **AdvantageKit 4.1.2** because 4.0.0 does not publish the
+`akit-wpilibio` native for `linuxarm64`. The annotation processor in
+`build.gradle` must match the vendor JSON version. See [docs/BUILD.md](docs/BUILD.md).
+
+## Old-robot safety
+
+CAN IDs, offsets, gearing, speed limits, and the REV steering PID are the last
+known-working values. Do the blocks checks in
+[docs/VALIDATION.md](docs/VALIDATION.md) before driving. The CTRE path is not
+hardware-tested until the new robot exists.

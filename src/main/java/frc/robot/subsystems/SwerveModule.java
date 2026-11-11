@@ -2,6 +2,7 @@ package frc.robot.subsystems;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.math.controller.SimpleMotorFeedforward;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
@@ -27,8 +28,14 @@ public class SwerveModule {
 	private final SwerveModuleIOInputsAutoLogged inputs = new SwerveModuleIOInputsAutoLogged();
 	/** Steering controller; the motor controller just receives its output. */
 	private final PIDController turningPID;
-	/** Where this module is trying to point. */
+	/** Drive speed controller; uses measured wheel speed, not fixed power. */
+	private final PIDController drivePID;
+	/** Feedforward seeded from the calibrated top speed. */
+	private final SimpleMotorFeedforward driveFeedforward;
+	/** Where this module is trying to point and how fast. */
 	private SwerveModuleState setpoint = new SwerveModuleState();
+	/** True after stop(); prevents the speed loop from fighting a stopped robot. */
+	private boolean stopped = true;
 
 	public SwerveModule(int index, SwerveModuleIO io) {
 		this.index = index;
@@ -37,6 +44,9 @@ public class SwerveModule {
 		turningPID = new PIDController(ModuleConstants.kPTurning, ModuleConstants.kITurning, ModuleConstants.kDTurning);
 		// Tell the PID that -pi and +pi are the same angle.
 		turningPID.enableContinuousInput(-Math.PI, Math.PI);
+
+		drivePID = new PIDController(DriveConstants.kDriveKp, DriveConstants.kDriveKi, DriveConstants.kDriveKd);
+		driveFeedforward = new SimpleMotorFeedforward(DriveConstants.kDriveKsVolts, DriveConstants.kDriveKvVoltsPerMps);
 	}
 
 	/** Reads hardware without logging. Used once during construction. */
@@ -50,6 +60,9 @@ public class SwerveModule {
 	 */
 	public void periodic() {
 		refreshInputs();
+		if (!stopped) {
+			applyDriveControl();
+		}
 		applyTurnControl();
 		Logger.processInputs("Drive/Module" + index, inputs);
 		Logger.recordOutput("Drive/Module" + index + "/Setpoint", setpoint);
@@ -96,10 +109,24 @@ public class SwerveModule {
 		// push sideways and scrub the carpet.
 		optimized.cosineScale(currentAngle);
 		setpoint = optimized;
-		io.setDriveOutput(
-				MathUtil.clamp(optimized.speedMetersPerSecond / DriveConstants.kMaxSpeedMetersPerSecond, -1.0, 1.0));
-		// Apply steering immediately instead of waiting for the next periodic().
+		stopped = false;
+		// Apply both loops immediately instead of waiting for the next periodic().
+		applyDriveControl();
 		applyTurnControl();
+	}
+
+	/**
+	 * Drives at the requested wheel speed using measured velocity plus feedforward.
+	 * kI and kD are zero, so it is safe to call this twice in one cycle.
+	 */
+	private void applyDriveControl() {
+		// Do not apply kS at a zero setpoint; otherwise a calibrated friction term
+		// would make a stopped or X-locked robot creep.
+		double feedforward = Math.abs(setpoint.speedMetersPerSecond) < 0.01
+				? 0.0
+				: driveFeedforward.calculate(setpoint.speedMetersPerSecond);
+		double feedback = drivePID.calculate(inputs.driveVelocityMetersPerSec, setpoint.speedMetersPerSecond);
+		io.setDriveVoltage(MathUtil.clamp(feedforward + feedback, -12.0, 12.0));
 	}
 
 	/**
@@ -120,13 +147,22 @@ public class SwerveModule {
 
 	/** Stops drive and holds the current steering angle. */
 	public void stop() {
-		io.setDriveOutput(0.0);
-		io.setTurnOutput(0.0);
+		stopped = true;
+		io.setDriveVoltage(0.0);
 		holdCurrentAngle();
+		applyTurnControl();
 	}
 
-	/** Re-zeroes the drive encoder after a wheel change. */
+	/**
+	 * Re-zeroes the drive encoder after a wheel change and refreshes the inputs.
+	 */
 	public void resetDrivePosition() {
 		io.resetDrivePosition();
+		refreshInputs();
+	}
+
+	/** Test-only snapshot; callers cannot mutate the real setpoint. */
+	SwerveModuleState getSetpointForTesting() {
+		return new SwerveModuleState(setpoint.speedMetersPerSecond, setpoint.angle);
 	}
 }

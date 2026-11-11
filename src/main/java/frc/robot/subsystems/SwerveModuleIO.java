@@ -32,13 +32,11 @@ public interface SwerveModuleIO {
 	default void updateInputs(SwerveModuleIOInputs inputs) {
 	}
 
-	/**
-	 * Output is a fraction of full scale: -1 is full reverse, +1 is full forward.
-	 */
-	default void setDriveOutput(double output) {
+	/** Drive motor voltage command, in volts. */
+	default void setDriveVoltage(double volts) {
 	}
 
-	/** Same scale as drive output; this is the steering motor command. */
+	/** Steering motor command as a fraction of full scale. */
 	default void setTurnOutput(double output) {
 	}
 

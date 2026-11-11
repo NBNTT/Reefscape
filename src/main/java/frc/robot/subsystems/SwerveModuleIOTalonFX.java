@@ -168,8 +168,8 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 	}
 
 	@Override
-	public void setDriveOutput(double output) {
-		driveMotor.set(MathUtil.clamp(output, -1.0, 1.0));
+	public void setDriveVoltage(double volts) {
+		driveMotor.setVoltage(MathUtil.clamp(volts, -12.0, 12.0));
 	}
 
 	@Override

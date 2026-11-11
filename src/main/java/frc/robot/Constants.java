@@ -5,6 +5,7 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.util.Units;
+import java.util.List;
 
 /**
  * All robot-wide constants for the drivetrain.
@@ -169,11 +170,23 @@ public final class Constants {
 		public static final double kMaxAngularAccelerationRadiansPerSecondSquared = 13.5;
 
 		/*
+		 * Drive velocity control: measured wheel speed is fed back instead of trusting
+		 * a fixed percent output. kS and kV are calibrated values; kV is seeded from
+		 * the 12 V / top-speed estimate. kI and kD are zero so the loop can safely run
+		 * twice per cycle.
+		 */
+		public static final double kDriveKp = 0.5;
+		public static final double kDriveKi = 0.0;
+		public static final double kDriveKd = 0.0;
+		public static final double kDriveKsVolts = 0.0;
+		public static final double kDriveKvVoltsPerMps = 12.0 / kMaxSpeedMetersPerSecond;
+
+		/*
 		 * Order is FL, FR, BL, BR and must match kDriveKinematics. The offsets are the
 		 * old calibration record: they make each wheel read 0 when it points straight
 		 * forward. Do not "simplify" the sums unless you recalibrate.
 		 */
-		public static final SwerveModuleConfig[] kRevModuleConfigs = {
+		public static final List<SwerveModuleConfig> kRevModuleConfigs = List.of(
 				new SwerveModuleConfig("FL", CAN.kRevFrontLeftDriveId, CAN.kRevFrontLeftTurnId,
 						CAN.kRevFrontLeftEncoderChannel, true, true, false, -2.854 - 0.494 - 0.548 - 2.987 - 0.02,
 						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio),
@@ -186,10 +199,10 @@ public final class Constants {
 				new SwerveModuleConfig("BR", CAN.kRevBackRightDriveId, CAN.kRevBackRightTurnId,
 						CAN.kRevBackRightEncoderChannel, true, true, false,
 						0.349 + 0.324 + 1.029 + 0.672 - 1.961 - 0.082 + 0.125 + 0.07,
-						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio)};
+						ModuleConstants.kRevWheelDiameterMeters, ModuleConstants.kRevDriveGearRatio));
 
 		/* Same FL, FR, BL, BR order. These are placeholders for the future robot. */
-		public static final SwerveModuleConfig[] kCtreModuleConfigs = {
+		public static final List<SwerveModuleConfig> kCtreModuleConfigs = List.of(
 				new SwerveModuleConfig("FL", CAN.kCtreFrontLeftDriveId, CAN.kCtreFrontLeftTurnId,
 						CAN.kCtreFrontLeftEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
 						ModuleConstants.kCtreDriveGearRatio),
@@ -201,18 +214,32 @@ public final class Constants {
 						ModuleConstants.kCtreDriveGearRatio),
 				new SwerveModuleConfig("BR", CAN.kCtreBackRightDriveId, CAN.kCtreBackRightTurnId,
 						CAN.kCtreBackRightEncoderId, true, true, false, 0.0, ModuleConstants.kCtreWheelDiameterMeters,
-						ModuleConstants.kCtreDriveGearRatio)};
+						ModuleConstants.kCtreDriveGearRatio));
 
 		/*
 		 * A true X: front-left and back-right wheels on one diagonal, front-right and
 		 * back-left on the other. Speed is zero; the steering PID moves the wheels into
 		 * position.
 		 */
-		public static final SwerveModuleState[] kCrossModuleStates = {
-				new SwerveModuleState(0.0, Rotation2d.fromDegrees(45)),
-				new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
-				new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
-				new SwerveModuleState(0.0, Rotation2d.fromDegrees(45))};
+		public static SwerveModuleState[] crossModuleStates() {
+			return new SwerveModuleState[]{new SwerveModuleState(0.0, Rotation2d.fromDegrees(45)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(45))};
+		}
+	}
+
+	public static final class VisionConstants {
+		/* Reject anything older than this; a stale pose can drag the robot. */
+		public static final double kMaxAgeSeconds = 0.5;
+		/* One tag is enough for a drivetrain-only foundation; raise for competition. */
+		public static final int kMinTags = 1;
+		/* Reject a measurement that jumps farther than this from the current pose. */
+		public static final double kMaxTranslationInnovationMeters = 1.0;
+		public static final double kMaxRotationInnovationRadians = 0.5;
+		/* Fallback covariance for the simple addVisionMeasurement overload. */
+		public static final double kDefaultTranslationStdDevMeters = 0.5;
+		public static final double kDefaultRotationStdDevRadians = 999999.0;
 	}
 
 	public static final class OIConstants {
