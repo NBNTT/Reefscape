@@ -26,4 +26,9 @@ public class GyroIOSim implements GyroIO {
 		inputs.yawRad = yawRad;
 		inputs.connected = true;
 	}
+
+	@Override
+	public void resetYaw() {
+		yawRad = 0.0;
+	}
 }

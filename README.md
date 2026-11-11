@@ -30,6 +30,11 @@ The active path is selected by `Constants.kHardware`.
 | Right bumper | Slow mode, with rumble |
 | A | X-lock |
 | Left bumper | Toggle field-oriented / robot-oriented |
+| Start | Reset current direction to field-forward (also Back) |
+
+The original 2025 code used **Back** for the gyro reset; Start was commented
+out. Start is now the primary reset as requested, and Back remains bound so the
+old control is not lost. Neither button resets during normal driving.
 
 The Ultimate 3C+ extra buttons are not mapped yet. Move the robot-oriented
 toggle to one of them by changing the `driver.leftBumper()` binding in
@@ -56,10 +61,24 @@ and accepted/rejected counts. See `docs/VALIDATION.md`.
 
 ## Drive control
 
+- Stick deadbands rescale continuously to the full usable range; there is no
+  jump at the edge.
+- Translation and rotation use a squared response for finer low-speed control.
+  Full stick still reaches the configured maximum.
+- The old `1 / 0.8` and `1 / 0.9` raw-input boost was removed.
+- Translation and rotation acceleration limits remain separate and configurable.
 - Requested chassis speeds are discretized over the 20 ms loop.
-- Steering setpoints use the shortest path and cosine compensation.
+- Steering setpoints use the shortest path and cosine compensation; steering
+  gains were not changed.
 - Drive speed uses measured wheel velocity with feedforward and feedback, not a
-  fixed percent output.
+  fixed percent output. The loop stays on the roboRIO; no SparkMax onboard
+  velocity control is used.
+- Heading hold captures the current heading when the turn stick is released and
+  uses a separate P-only PID to hold it. Manual rotation always overrides it.
+  Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
+  autonomous.
+- Start/Back resets the gyro and pose heading together and clears the held
+  heading.
 - The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
   steering in the TalonFX.
 - Teleop is blocked in Autonomous and Disabled.
@@ -75,11 +94,13 @@ and accepted/rejected counts. See `docs/VALIDATION.md`.
 ```
 
 The test suite covers forward driving, X-lock, module order/kinematics, gyro
-sign, angle wrapping, pose resets, steering optimization, cosine compensation,
-stop behavior, disabled and initialization behavior, teleop interruption,
-field- and robot-oriented driving at multiple headings, periodic drive-encoder
-stability, drive-voltage limits, vendor steering, measured velocity control,
-the autonomous foundation, and vision gating.
+sign and Start reset, angle wrapping, pose resets, steering optimization,
+cosine compensation, stop behavior, disabled and initialization behavior,
+teleop interruption, field- and robot-oriented driving at multiple headings,
+heading-hold capture/hold/manual override/wraparound/reset, input shaping
+(deadband continuity, squared response, full-stick maximum), periodic
+drive-encoder stability, drive-voltage limits, vendor steering, measured
+velocity control, the autonomous foundation, and vision gating.
 
 The robot now logs measured versus requested chassis speeds, per-module
 steering/speed error, loop time, battery voltage, and all module inputs.

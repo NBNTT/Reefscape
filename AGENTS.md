@@ -28,7 +28,15 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 - Hardware: `Constants.kHardware = REV_MK4N` is the 2024 test robot;
   `CTRE_MK5N` is the future Kraken robot and needs real IDs/offsets filled.
 - Drive control is measured wheel velocity with feedforward; do not reintroduce
-  open-loop percent output.
+  open-loop percent output or SparkMax onboard velocity control.
+- Stick input uses deadband rescaling plus a squared response; do not re-add the
+  old `1 / 0.8` or `1 / 0.9` raw boost. Full stick must still reach the
+  configured maximum.
+- Heading hold uses the separate `HeadingConstants` PID. Manual rotation must
+  override it; it must stay off in robot-oriented mode, X-lock, disabled, and
+  autonomous.
+- Start and Back reset the gyro and pose heading together. Back was the original
+  2025 binding; do not remove either without an explicit control decision.
 - Vision must go through `Swerve.addVisionMeasurement` so age, order,
   covariance, jump gates, and accepted/rejected logs are preserved.
 
@@ -60,12 +68,15 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 ## Verification
 
 - `SwerveTest` covers simulation driving and X-lock. `SwerveControlTest` covers
-  module order/kinematics, gyro sign, angle wrapping, pose resets, steering
-  optimization, cosine compensation, stop/disabled/initialization behavior,
-  teleop interruption, field- and robot-oriented driving at multiple headings,
-  periodic drive-encoder stability, drive-voltage limits, vendor steering,
-  measured velocity control, the autonomous foundation, and vision gating.
-  Expand them before changing behavior.
+  module order/kinematics, gyro sign, Start heading reset, angle wrapping, pose
+  resets, steering optimization, cosine compensation, stop/disabled/
+  initialization behavior, teleop interruption, field- and robot-oriented
+  driving at multiple headings, heading-hold capture/hold/manual override/
+  wraparound/reset, periodic drive-encoder stability, drive-voltage limits,
+  vendor steering, measured velocity control, the autonomous foundation, and
+  vision gating. `SwerveTeleOpTest` covers deadband continuity, squared
+  response, sign preservation, and full-stick reach. Expand them before
+  changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.

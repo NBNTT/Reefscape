@@ -1,6 +1,7 @@
 package frc.robot.commands;
 
 import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.filter.SlewRateLimiter;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -8,6 +9,7 @@ import edu.wpi.first.wpilibj.GenericHID.RumbleType;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants.DriveConstants;
+import frc.robot.Constants.HeadingConstants;
 import frc.robot.Constants.OIConstants;
 import frc.robot.subsystems.Swerve;
 import java.util.function.BooleanSupplier;
@@ -20,8 +22,8 @@ import java.util.function.DoubleSupplier;
  *
  * <p>
  * Controls: right bumper = slow mode with rumble, left bumper = field/robot
- * oriented toggle (bound in {@link frc.robot.RobotContainer}), A = X-lock
- * (bound in {@link frc.robot.RobotContainer}).
+ * oriented toggle, A = X-lock, Start/Back = reset heading (bound in
+ * {@link frc.robot.RobotContainer}).
  */
 public class SwerveTeleOp extends Command {
 	private final Swerve swerve;
@@ -37,6 +39,15 @@ public class SwerveTeleOp extends Command {
 	private final SlewRateLimiter forwardLimiter;
 	private final SlewRateLimiter strafeLimiter;
 	private final SlewRateLimiter turnLimiter;
+
+	/**
+	 * Separate from the steering PID; holds a heading when the turn stick is
+	 * released.
+	 */
+	private final PIDController headingPID;
+	private boolean headingHoldActive = false;
+	private double headingTargetRad = 0.0;
+	private ChassisSpeeds lastChassisSpeeds = new ChassisSpeeds();
 
 	/** Production constructor: reads the real controller. */
 	public SwerveTeleOp(Swerve swerve, CommandXboxController driver, BooleanSupplier robotOriented) {
@@ -63,6 +74,9 @@ public class SwerveTeleOp extends Command {
 		strafeLimiter = new SlewRateLimiter(DriveConstants.kMaxAccelerationMetersPerSecondSquared);
 		turnLimiter = new SlewRateLimiter(DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared);
 
+		headingPID = new PIDController(HeadingConstants.kKp, HeadingConstants.kKi, HeadingConstants.kKd);
+		headingPID.enableContinuousInput(-Math.PI, Math.PI);
+
 		// No other command may drive the drivetrain while this one is active.
 		addRequirements(swerve);
 	}
@@ -73,6 +87,8 @@ public class SwerveTeleOp extends Command {
 		forwardLimiter.reset(0.0);
 		strafeLimiter.reset(0.0);
 		turnLimiter.reset(0.0);
+		resetHeadingHold();
+		lastChassisSpeeds = new ChassisSpeeds();
 	}
 
 	@Override
@@ -80,6 +96,8 @@ public class SwerveTeleOp extends Command {
 		// Default commands run in every mode; only the driver may drive in teleop or
 		// test.
 		if (!driverControlEnabled.getAsBoolean()) {
+			resetHeadingHold();
+			lastChassisSpeeds = new ChassisSpeeds();
 			setRumble(false);
 			swerve.stopModules();
 			forwardLimiter.reset(0.0);
@@ -88,28 +106,12 @@ public class SwerveTeleOp extends Command {
 			return;
 		}
 
-		// WPILib axes: +X is forward and +Y is left. The supplied values are
-		// already mapped to that convention.
-		double forward = forwardSupplier.getAsDouble();
-		double strafe = strafeSupplier.getAsDouble();
-		double turn = turnSupplier.getAsDouble();
-
-		// Use the combined stick distance so pure sideways strafing is not
-		// mistaken for "no input".
-		if (Math.hypot(forward, strafe) < OIConstants.kDeadband) {
-			forward = 0.0;
-			strafe = 0.0;
-		}
-		if (Math.abs(turn) < OIConstants.kDeadband) {
-			turn = 0.0;
-		}
-
-		// Old stick boost, kept so the driving feel matches the old robot.
-		forward *= forward > 0 ? 1.0 / 0.8 : 1.0 / 0.9;
-		strafe *= 1.0 / 0.9;
-		forward = MathUtil.clamp(forward, -1.0, 1.0);
-		strafe = MathUtil.clamp(strafe, -1.0, 1.0);
-		turn = MathUtil.clamp(turn, -1.0, 1.0);
+		// Deadband rescales the usable range continuously; squaring gives finer
+		// low-speed control while still reaching 1.0 at full stick.
+		double forward = shapeInput(forwardSupplier.getAsDouble(), OIConstants.kDeadband);
+		double strafe = shapeInput(strafeSupplier.getAsDouble(), OIConstants.kDeadband);
+		double turnRaw = MathUtil.applyDeadband(turnSupplier.getAsDouble(), OIConstants.kDeadband);
+		double turn = Math.copySign(turnRaw * turnRaw, turnRaw);
 
 		// Right bumper: scale everything down and give the driver feedback.
 		boolean slowMode = slowModeSupplier.getAsBoolean();
@@ -120,23 +122,68 @@ public class SwerveTeleOp extends Command {
 			turn *= OIConstants.kSlowModeFactor;
 		}
 
+		boolean robotOrientedNow = robotOriented.getAsBoolean();
+		boolean manualRotation = Math.abs(turnRaw) >= HeadingConstants.kManualTurnThreshold;
+		double requestedTurnRadPerSec;
+		if (robotOrientedNow || manualRotation) {
+			// Manual rotation always wins; heading hold is disabled in robot-oriented mode.
+			resetHeadingHold();
+			requestedTurnRadPerSec = turn * DriveConstants.kMaxAngularSpeedRadiansPerSecond;
+		} else {
+			if (!headingHoldActive) {
+				headingHoldActive = true;
+				headingTargetRad = swerve.getHeading().getRadians();
+				headingPID.reset();
+			}
+			requestedTurnRadPerSec = MathUtil.clamp(
+					headingPID.calculate(swerve.getHeading().getRadians(), headingTargetRad),
+					-DriveConstants.kMaxAngularSpeedRadiansPerSecond, DriveConstants.kMaxAngularSpeedRadiansPerSecond);
+		}
+
 		// Convert stick fractions to real units, then limit how fast they change.
 		forward = forwardLimiter.calculate(forward * DriveConstants.kMaxSpeedMetersPerSecond);
 		strafe = strafeLimiter.calculate(strafe * DriveConstants.kMaxSpeedMetersPerSecond);
-		turn = turnLimiter.calculate(turn * DriveConstants.kMaxAngularSpeedRadiansPerSecond);
+		double turnRadPerSec = turnLimiter.calculate(requestedTurnRadPerSec);
 
 		// Field-oriented uses the robot's current heading; robot-oriented does not.
-		ChassisSpeeds speeds = robotOriented.getAsBoolean()
-				? new ChassisSpeeds(forward, strafe, turn)
-				: ChassisSpeeds.fromFieldRelativeSpeeds(forward, strafe, turn, swerve.getHeading());
+		ChassisSpeeds speeds = robotOrientedNow
+				? new ChassisSpeeds(forward, strafe, turnRadPerSec)
+				: ChassisSpeeds.fromFieldRelativeSpeeds(forward, strafe, turnRadPerSec, swerve.getHeading());
+		lastChassisSpeeds = speeds;
 		swerve.setModuleStates(speeds);
 	}
 
 	@Override
 	public void end(boolean interrupted) {
 		// Release the wheels and stop the rumble when another command takes over.
+		resetHeadingHold();
+		lastChassisSpeeds = new ChassisSpeeds();
 		swerve.stopModules();
 		setRumble(false);
+	}
+
+	/** Clears the held heading; the next neutral turn cycle captures a new one. */
+	public void resetHeadingHold() {
+		headingHoldActive = false;
+		headingPID.reset();
+	}
+
+	/** Test-only view of the most recent chassis command. */
+	public ChassisSpeeds getLastChassisSpeedsForTesting() {
+		return lastChassisSpeeds;
+	}
+
+	/** Test-only view of whether heading hold is currently active. */
+	public boolean isHeadingHoldActiveForTesting() {
+		return headingHoldActive;
+	}
+
+	/**
+	 * Deadband-rescale then square, preserving sign and reaching 1.0 at full stick.
+	 */
+	static double shapeInput(double raw, double deadband) {
+		double deadbanded = MathUtil.applyDeadband(raw, deadband);
+		return Math.copySign(deadbanded * deadbanded, deadbanded);
 	}
 
 	/** Right-side rumble while slow mode is held; both sides off otherwise. */

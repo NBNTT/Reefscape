@@ -48,6 +48,7 @@ public class Swerve extends SubsystemBase {
 	private double lastAcceptedVisionTimestampSeconds = -1.0;
 	private int acceptedVisionCount = 0;
 	private int rejectedVisionCount = 0;
+	private int headingResetCount = 0;
 
 	public Swerve() {
 		// Pick the REV or CTRE wiring set from Constants.kHardware.
@@ -208,6 +209,22 @@ public class Swerve extends SubsystemBase {
 		poseEstimator.resetPosition(new Rotation2d(gyroInputs.yawRad), getModulePositions(), pose);
 		// Reject any camera frame captured before this reset.
 		lastAcceptedVisionTimestampSeconds = Timer.getFPGATimestamp();
+	}
+
+	/**
+	 * Makes the robot's current direction the new field-forward heading. The gyro,
+	 * pose estimator, and field-oriented driving all use the same zero afterward.
+	 * The field position and drive encoders are left alone.
+	 */
+	public void resetHeading() {
+		gyroIO.resetYaw();
+		gyroIO.updateInputs(gyroInputs);
+		Pose2d currentPose = getPose();
+		poseEstimator.resetPosition(new Rotation2d(gyroInputs.yawRad), getModulePositions(),
+				new Pose2d(currentPose.getTranslation(), new Rotation2d()));
+		lastAcceptedVisionTimestampSeconds = Timer.getFPGATimestamp();
+		headingResetCount++;
+		Logger.recordOutput("Drive/HeadingResetCount", headingResetCount);
 	}
 
 	/**

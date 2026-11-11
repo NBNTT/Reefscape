@@ -229,6 +229,18 @@ public final class Constants {
 		}
 	}
 
+	public static final class HeadingConstants {
+		/*
+		 * Heading-hold PID. P-only and conservative; output is rad/s. Keep these
+		 * separate from the steering PID.
+		 */
+		public static final double kKp = 2.0;
+		public static final double kKi = 0.0;
+		public static final double kKd = 0.0;
+		/* Normalized turn input below this is treated as "released". */
+		public static final double kManualTurnThreshold = 0.05;
+	}
+
 	public static final class VisionConstants {
 		/* Reject anything older than this; a stale pose can drag the robot. */
 		public static final double kMaxAgeSeconds = 0.5;

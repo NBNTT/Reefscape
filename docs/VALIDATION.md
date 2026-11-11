@@ -75,11 +75,14 @@ or field-oriented driving.
 - Controls work in Teleop and Test, not in Autonomous or Disabled.
 - `SwerveTest` checks forward motion and X-lock.
 - `SwerveControlTest` checks the logic that is hard to test on hardware:
-  module order, gyro sign, angle wrapping, pose resets, steering optimization,
-  cosine compensation, stop/disabled/initialization behavior, teleop
-  interruption, field- and robot-oriented driving at multiple headings,
-  periodic drive-encoder stability, drive-voltage limits, vendor steering,
-  measured velocity control, the autonomous foundation, and vision gating.
+  module order, gyro sign, Start reset, angle wrapping, pose resets, steering
+  optimization, cosine compensation, stop/disabled/initialization behavior,
+  teleop interruption, field- and robot-oriented driving at multiple headings,
+  heading-hold capture/hold/manual override/wraparound/reset, periodic
+  drive-encoder stability, drive-voltage limits, vendor steering, measured
+  velocity control, the autonomous foundation, and vision gating.
+- `SwerveTeleOpTest` checks deadband continuity, squared response, sign
+  preservation, and full-stick reach.
 - Simulation does not prove motor directions, encoder offsets, current limits,
   or carpet behavior.
 
@@ -110,16 +113,38 @@ Do this on blocks first.
 4. A: X-lock; wheels should move to a true X and hold.
 5. Right bumper: slow mode and right-side rumble.
 6. Left bumper: field-oriented / robot-oriented toggle.
-7. Release the sticks: the robot should stop and hold its wheel angles.
-8. Drive a short distance and turn: `Drive/Pose` and `Drive/Heading` should
+7. Start (and Back): the current direction becomes field-forward; the pose
+   heading and gyro both read zero. Back was the original 2025 binding.
+8. Release the sticks: the robot should stop and hold its wheel angles.
+9. Drive a short distance and turn: `Drive/Pose` and `Drive/Heading` should
    move in the expected direction.
-9. Check `Drive/ModuleX/SteeringErrorRad` and
-   `Drive/ModuleX/DriveSpeedErrorMetersPerSec` while turning and accelerating.
-10. Check motor temperatures and currents after a few minutes.
+10. Release the turn stick: heading hold should keep the current direction while
+    translating. Push the robot slightly and confirm it corrects.
+11. Command manual rotation: it must override heading hold immediately.
+12. Select robot-oriented mode: heading hold must be inactive.
+13. Check `Drive/ModuleX/SteeringErrorRad` and
+    `Drive/ModuleX/DriveSpeedErrorMetersPerSec` while turning and accelerating.
+14. Check motor temperatures and currents after a few minutes.
 
 Only then take the robot off blocks.
 
-## 5. Autonomous foundation
+## 5. Heading hold and input shaping
+
+- Deadband inputs are zero; just outside the deadband the command ramps
+  continuously from zero. There is no jump.
+- Translation and rotation use a squared response. Half stick is less than half
+  speed; full stick reaches the configured maximum.
+- Heading hold captures the heading when the turn stick is released. It is
+  P-only (`Constants.HeadingConstants`) and separate from the steering PID.
+- Manual rotation always overrides heading hold.
+- Start/Back resets the gyro and pose heading together and clears the held
+  target; `Drive/HeadingResetCount` is logged.
+- Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
+  autonomous.
+- Steering PID gains, deadbands, and algorithms were intentionally not changed.
+  Tune steering only on the robot if evidence shows a need.
+
+## 6. Autonomous foundation
 
 - The dashboard chooser defaults to **Do Nothing**.
 - **Drive Forward** resets the pose, drives robot-relative at 1 m/s for 2 s,
@@ -130,7 +155,7 @@ Only then take the robot off blocks.
 
 Add real game autos in `Autos` and the chooser in `RobotContainer`.
 
-## 6. Vision fusion
+## 7. Vision fusion
 
 Vision is not connected yet. When a camera is added, call:
 
@@ -147,7 +172,7 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
   `Vision/RejectedCount` are logged for every measurement.
 - Tune `Constants.VisionConstants` only after collecting real camera data.
 
-## 7. Known limitations
+## 8. Known limitations
 
 - REV steering still uses the WPILib 50 Hz PID, not the SparkMax closed loop.
 - CTRE steering/current values are placeholders until the Kraken robot is built.

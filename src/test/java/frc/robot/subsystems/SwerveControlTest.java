@@ -1,6 +1,7 @@
 package frc.robot.subsystems;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,8 +14,11 @@ import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants.DriveConstants;
+import frc.robot.Constants.OIConstants;
 import frc.robot.commands.Autos;
 import frc.robot.commands.SwerveTeleOp;
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -156,10 +160,207 @@ class SwerveControlTest {
 		command.execute();
 
 		assertEquals(0.0, rumble[0], 1e-9);
+		assertFalse(command.isHeadingHoldActiveForTesting());
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
 		for (FakeModuleIO io : ios) {
 			assertEquals(0.0, io.driveVoltage, 1e-9);
 			assertEquals(0.0, io.turnOutput, 1e-9);
 		}
+	}
+
+	@Test
+	void startResetZerosHeading() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		gyro.yawRad = 0.7;
+		swerve.periodic();
+		assertEquals(0.7, swerve.getHeading().getRadians(), 1e-9);
+
+		swerve.resetHeading();
+
+		assertEquals(0.0, swerve.getHeading().getRadians(), 1e-9);
+		assertEquals(0.0, gyro.yawRad, 1e-9);
+		assertEquals(1, gyro.resetCount);
+	}
+
+	@Test
+	void headingHoldCapturesAfterRelease() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		double[] turn = {0.5};
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> turn[0], () -> false, () -> true);
+		command.initialize();
+
+		for (int i = 0; i < 5; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+		assertFalse(command.isHeadingHoldActiveForTesting());
+
+		turn[0] = 0.0;
+		Timer.delay(0.02);
+		command.execute();
+		assertTrue(command.isHeadingHoldActiveForTesting());
+
+		gyro.yawRad = 0.2;
+		swerve.periodic();
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+		assertTrue(command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond < 0.0);
+	}
+
+	@Test
+	void headingHoldHoldsWhileTranslating() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		double[] forward = {0.0};
+		SwerveTeleOp command = createDriveCommand(swerve, () -> forward[0], () -> 0.0, () -> false, () -> true);
+		command.initialize();
+		Timer.delay(0.02);
+		command.execute();
+		assertTrue(command.isHeadingHoldActiveForTesting());
+
+		forward[0] = 0.5;
+		for (int i = 0; i < 5; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
+	}
+
+	@Test
+	void manualRotationOverridesHeadingHold() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		double[] turn = {0.0};
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> turn[0], () -> false, () -> true);
+		command.initialize();
+		Timer.delay(0.02);
+		command.execute();
+		assertTrue(command.isHeadingHoldActiveForTesting());
+
+		turn[0] = 0.5;
+		Timer.delay(0.02);
+		command.execute();
+		assertFalse(command.isHeadingHoldActiveForTesting());
+		assertTrue(command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond > 0.0);
+	}
+
+	@Test
+	void headingHoldWrapsNearPi() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		gyro.yawRad = 3.1;
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		swerve.resetPose(new Pose2d(0.0, 0.0, new Rotation2d(3.1)));
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> 0.0, () -> false, () -> true);
+		command.initialize();
+		Timer.delay(0.02);
+		command.execute();
+		assertEquals(3.1, swerve.getHeading().getRadians(), 1e-9);
+
+		gyro.yawRad = -3.1;
+		swerve.periodic();
+		for (int i = 0; i < 10; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+		assertTrue(command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond < 0.0);
+	}
+
+	@Test
+	void resetHeadingClearsHeadingHold() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> 0.0, () -> false, () -> true);
+		command.initialize();
+		Timer.delay(0.02);
+		command.execute();
+		assertTrue(command.isHeadingHoldActiveForTesting());
+
+		gyro.yawRad = 0.5;
+		swerve.periodic();
+		Timer.delay(0.02);
+		command.execute();
+		swerve.resetHeading();
+		command.resetHeadingHold();
+		for (int i = 0; i < 10; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+
+		assertTrue(command.isHeadingHoldActiveForTesting());
+		assertEquals(0.0, swerve.getHeading().getRadians(), 1e-9);
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-6);
+	}
+
+	@Test
+	void robotOrientedDisablesHeadingHold() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> 0.0, () -> true, () -> true);
+		command.initialize();
+		Timer.delay(0.02);
+		command.execute();
+
+		assertFalse(command.isHeadingHoldActiveForTesting());
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
+	}
+
+	@Test
+	void fullStickReachesConfiguredMaximums() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 1.0, () -> 1.0, () -> false, () -> true);
+		command.initialize();
+
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+
+		assertEquals(DriveConstants.kMaxSpeedMetersPerSecond,
+				command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-6);
+		assertEquals(DriveConstants.kMaxAngularSpeedRadiansPerSecond,
+				command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-6);
+	}
+
+	@Test
+	void pureStrafeStillReachesMaximum() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> 0.0, () -> 1.0, () -> 0.0, () -> false, () -> false,
+				() -> true, value -> {
+				});
+		command.initialize();
+
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+
+		assertEquals(DriveConstants.kMaxSpeedMetersPerSecond,
+				command.getLastChassisSpeedsForTesting().vyMetersPerSecond, 1e-6);
+	}
+
+	@Test
+	void lowStickHasFinerControl() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.5, () -> 0.0, () -> false, () -> true);
+		command.initialize();
+
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+
+		double expected = Math.pow((0.5 - OIConstants.kDeadband) / (1.0 - OIConstants.kDeadband), 2)
+				* DriveConstants.kMaxSpeedMetersPerSecond;
+		assertEquals(expected, command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-6);
+		assertTrue(command.getLastChassisSpeedsForTesting().vxMetersPerSecond < 0.5
+				* DriveConstants.kMaxSpeedMetersPerSecond);
 	}
 
 	@Test
@@ -175,6 +376,8 @@ class SwerveControlTest {
 		command.end(true);
 
 		assertEquals(0.0, rumble[0], 1e-9);
+		assertFalse(command.isHeadingHoldActiveForTesting());
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
 		for (FakeModuleIO io : ios) {
 			assertEquals(0.0, io.driveVoltage, 1e-9);
 			assertEquals(0.0, io.turnOutput, 1e-9);
@@ -340,6 +543,12 @@ class SwerveControlTest {
 		}
 	}
 
+	private static SwerveTeleOp createDriveCommand(Swerve swerve, DoubleSupplier forward, DoubleSupplier turn,
+			BooleanSupplier robotOriented, BooleanSupplier driverControl) {
+		return new SwerveTeleOp(swerve, forward, () -> 0.0, turn, () -> false, robotOriented, driverControl, value -> {
+		});
+	}
+
 	private static SwerveModuleState[] setpoints(Swerve swerve) {
 		SwerveModuleState[] setpoints = new SwerveModuleState[4];
 		for (int i = 0; i < setpoints.length; i++) {
@@ -403,11 +612,18 @@ class SwerveControlTest {
 
 	private static class FakeGyroIO implements GyroIO {
 		double yawRad;
+		int resetCount;
 
 		@Override
 		public void updateInputs(GyroIOInputs inputs) {
 			inputs.yawRad = yawRad;
 			inputs.connected = true;
+		}
+
+		@Override
+		public void resetYaw() {
+			yawRad = 0.0;
+			resetCount++;
 		}
 	}
 }

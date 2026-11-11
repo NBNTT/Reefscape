@@ -20,12 +20,14 @@ public class RobotContainer {
 	private final Swerve swerve = new Swerve();
 	private final CommandXboxController driver = new CommandXboxController(OIConstants.kDriverControllerPort);
 	private final SendableChooser<Command> autoChooser = new SendableChooser<>();
+	private final SwerveTeleOp driveCommand;
 	/** Shared with SwerveTeleOp; left bumper flips it. */
 	private boolean robotOriented = false;
 
 	public RobotContainer() {
 		// Drive with the left/right sticks; this command is always the fallback.
-		swerve.setDefaultCommand(new SwerveTeleOp(swerve, driver, () -> robotOriented));
+		driveCommand = new SwerveTeleOp(swerve, driver, () -> robotOriented);
+		swerve.setDefaultCommand(driveCommand);
 
 		// Drivetrain-only auto choices. Do Nothing is the safe default.
 		autoChooser.setDefaultOption("Do Nothing", Autos.doNothing());
@@ -36,6 +38,14 @@ public class RobotContainer {
 		Trigger driverControl = RobotModeTriggers.teleop().or(RobotModeTriggers.test());
 		// Hold A to lock the wheels in an X.
 		driver.a().and(driverControl).whileTrue(Commands.run(swerve::lockWheels, swerve));
+		// Start resets the current direction to field-forward. Back is also bound
+		// because the original 2025 code used Back for the gyro reset.
+		Command resetHeading = Commands.runOnce(() -> {
+			swerve.resetHeading();
+			driveCommand.resetHeadingHold();
+		});
+		driver.start().and(driverControl).onTrue(resetHeading);
+		driver.back().and(driverControl).onTrue(resetHeading);
 		// Tap the left bumper to switch between field-oriented and robot-oriented.
 		driver.leftBumper().and(driverControl).onTrue(Commands.runOnce(() -> robotOriented = !robotOriented));
 	}

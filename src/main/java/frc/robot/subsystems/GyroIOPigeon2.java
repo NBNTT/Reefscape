@@ -20,4 +20,9 @@ public class GyroIOPigeon2 implements GyroIO {
 		inputs.yawRad = gyro.getRotation2d().getRadians();
 		inputs.connected = gyro.getYaw().getStatus() == StatusCode.OK;
 	}
+
+	@Override
+	public void resetYaw() {
+		gyro.reset();
+	}
 }

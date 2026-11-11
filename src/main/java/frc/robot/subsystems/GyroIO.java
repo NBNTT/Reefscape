@@ -18,4 +18,8 @@ public interface GyroIO {
 	/** Reads the current heading. Called every 20 ms. */
 	default void updateInputs(GyroIOInputs inputs) {
 	}
+
+	/** Makes the robot's current direction the new heading zero. */
+	default void resetYaw() {
+	}
 }
