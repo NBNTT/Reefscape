@@ -75,9 +75,11 @@ and accepted/rejected counts. See `docs/VALIDATION.md`.
 ```
 
 The test suite covers forward driving, X-lock, module order/kinematics, gyro
-sign, pose resets, steering optimization, cosine compensation, stop behavior,
-teleop interruption, vendor steering, measured velocity control, and vision
-gating.
+sign, angle wrapping, pose resets, steering optimization, cosine compensation,
+stop behavior, disabled and initialization behavior, teleop interruption,
+field- and robot-oriented driving at multiple headings, periodic drive-encoder
+stability, drive-voltage limits, vendor steering, measured velocity control,
+the autonomous foundation, and vision gating.
 
 The robot now logs measured versus requested chassis speeds, per-module
 steering/speed error, loop time, battery voltage, and all module inputs.

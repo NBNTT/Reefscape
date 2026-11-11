@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -11,6 +12,7 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
+import frc.robot.Constants.DriveConstants;
 import frc.robot.commands.Autos;
 import frc.robot.commands.SwerveTeleOp;
 import org.junit.jupiter.api.Test;
@@ -143,6 +145,24 @@ class SwerveControlTest {
 	}
 
 	@Test
+	void disabledModeStopsAndDoesNotDrive() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+		double[] rumble = {1.0};
+
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> 1.0, () -> 0.0, () -> 0.0, () -> false, () -> false,
+				() -> false, value -> rumble[0] = value);
+		command.initialize();
+		command.execute();
+
+		assertEquals(0.0, rumble[0], 1e-9);
+		for (FakeModuleIO io : ios) {
+			assertEquals(0.0, io.driveVoltage, 1e-9);
+			assertEquals(0.0, io.turnOutput, 1e-9);
+		}
+	}
+
+	@Test
 	void teleopInterruptionStopsAndClearsRumble() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
@@ -206,6 +226,54 @@ class SwerveControlTest {
 	}
 
 	@Test
+	void fieldAndRobotOrientedDrivingMatchAtDifferentHeadings() {
+		assertDrivingMatches(0.0, false);
+		assertDrivingMatches(0.5, false);
+		assertDrivingMatches(0.5, true);
+	}
+
+	@Test
+	void periodicNeverResetsDriveEncoders() {
+		FakeModuleIO[] ios = createFakeModules();
+		for (int i = 0; i < ios.length; i++) {
+			ios[i].drivePositionMeters = 1.5 + i;
+		}
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+		for (int i = 0; i < 50; i++) {
+			swerve.periodic();
+		}
+		for (int i = 0; i < ios.length; i++) {
+			assertEquals(0, ios[i].resetCount);
+			assertEquals(1.5 + i, ios[i].drivePositionMeters, 1e-9);
+		}
+	}
+
+	@Test
+	void angleWrappingUsesShortestPath() {
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io);
+		module.setDesiredState(new SwerveModuleState(1.0, Rotation2d.fromDegrees(359.0)));
+
+		SwerveModuleState setpoint = module.getSetpointForTesting();
+		assertEquals(-1.0, setpoint.angle.getDegrees(), 1e-9);
+		assertTrue(setpoint.speedMetersPerSecond > 0.0);
+		assertTrue(io.turnOutput < 0.0);
+	}
+
+	@Test
+	void driveVoltageIsClampedAndZeroAtZeroSpeed() {
+		FakeModuleIO fastIO = new FakeModuleIO();
+		SwerveModule fastModule = new SwerveModule(0, fastIO);
+		fastModule.setDesiredState(new SwerveModuleState(100.0, new Rotation2d()));
+		assertEquals(12.0, fastIO.driveVoltage, 1e-9);
+
+		FakeModuleIO stoppedIO = new FakeModuleIO();
+		SwerveModule stoppedModule = new SwerveModule(0, stoppedIO);
+		stoppedModule.setDesiredState(new SwerveModuleState(0.0, new Rotation2d()));
+		assertEquals(0.0, stoppedIO.driveVoltage, 1e-9);
+	}
+
+	@Test
 	void autonomousFoundationIsWiredToTheDrivetrain() {
 		Swerve swerve = new Swerve(createFakeModules(), new FakeGyroIO());
 		Command doNothing = Autos.doNothing();
@@ -221,8 +289,8 @@ class SwerveControlTest {
 		SwerveModule module = new SwerveModule(0, io);
 		module.setDesiredState(new SwerveModuleState(1.0, new Rotation2d()));
 
-		// The feedforward should command positive volts, not a raw percent.
-		assertTrue(io.driveVoltage > 0.0);
+		// Feedforward (kV * 1 m/s) plus feedback (kP * 1 m/s error) in volts.
+		assertEquals(DriveConstants.kDriveKvVoltsPerMps + DriveConstants.kDriveKp, io.driveVoltage, 1e-6);
 		assertTrue(io.driveVoltage <= 12.0);
 	}
 
@@ -235,6 +303,49 @@ class SwerveControlTest {
 		for (int i = 0; i < ios.length; i++) {
 			assertTrue(Double.isFinite(swerve.getModuleForTesting(i).getSetpointForTesting().angle.getRadians()));
 		}
+	}
+
+	private static void assertDrivingMatches(double headingRad, boolean robotOriented) {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		gyro.yawRad = headingRad;
+		swerve.periodic();
+
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> 1.0, () -> 0.0, () -> 0.0, () -> false,
+				() -> robotOriented, () -> true, value -> {
+				});
+		command.initialize();
+		// The command's slew limiters use wall-clock time; give each cycle 20 ms
+		// so the test exercises the steady-state command, not an instant jump.
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+		SwerveModuleState[] actual = setpoints(swerve);
+
+		ChassisSpeeds expectedSpeeds = robotOriented
+				? new ChassisSpeeds(DriveConstants.kMaxSpeedMetersPerSecond, 0.0, 0.0)
+				: ChassisSpeeds.fromFieldRelativeSpeeds(DriveConstants.kMaxSpeedMetersPerSecond, 0.0, 0.0,
+						new Rotation2d(headingRad));
+		swerve.setModuleStates(expectedSpeeds);
+		SwerveModuleState[] expected = setpoints(swerve);
+
+		for (int i = 0; i < expected.length; i++) {
+			assertEquals(expected[i].speedMetersPerSecond, actual[i].speedMetersPerSecond, 1e-6,
+					"Speed mismatch at module " + i + " heading " + headingRad + " robotOriented " + robotOriented);
+			double angleError = Math.abs(MathUtil
+					.inputModulus(expected[i].angle.getDegrees() - actual[i].angle.getDegrees(), -180.0, 180.0));
+			assertTrue(angleError < 1e-6,
+					"Angle mismatch at module " + i + " heading " + headingRad + " robotOriented " + robotOriented);
+		}
+	}
+
+	private static SwerveModuleState[] setpoints(Swerve swerve) {
+		SwerveModuleState[] setpoints = new SwerveModuleState[4];
+		for (int i = 0; i < setpoints.length; i++) {
+			setpoints[i] = swerve.getModuleForTesting(i).getSetpointForTesting();
+		}
+		return setpoints;
 	}
 
 	private static FakeModuleIO[] createFakeModules() {

@@ -105,7 +105,7 @@ public class Swerve extends SubsystemBase {
 
 	@Override
 	public void periodic() {
-		// 1) Read every module and run its steering loop.
+		// 1) Read every module and run its drive and steering loops.
 		for (SwerveModule module : modules) {
 			module.periodic();
 		}
@@ -210,7 +210,10 @@ public class Swerve extends SubsystemBase {
 		lastAcceptedVisionTimestampSeconds = Timer.getFPGATimestamp();
 	}
 
-	/** Convenience overload with a conservative default covariance. */
+	/**
+	 * Convenience overload with the default covariance: translation is trusted,
+	 * heading is effectively ignored.
+	 */
 	public void addVisionMeasurement(Pose2d visionPose, double timestampSeconds) {
 		addVisionMeasurement(visionPose, timestampSeconds,
 				VecBuilder.fill(VisionConstants.kDefaultTranslationStdDevMeters,

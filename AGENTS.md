@@ -60,10 +60,12 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 ## Verification
 
 - `SwerveTest` covers simulation driving and X-lock. `SwerveControlTest` covers
-  module order/kinematics, gyro sign, pose resets, steering optimization,
-  cosine compensation, stop behavior, teleop interruption, vendor steering,
-  measured velocity control, and vision gating. Expand them before changing
-  behavior.
+  module order/kinematics, gyro sign, angle wrapping, pose resets, steering
+  optimization, cosine compensation, stop/disabled/initialization behavior,
+  teleop interruption, field- and robot-oriented driving at multiple headings,
+  periodic drive-encoder stability, drive-voltage limits, vendor steering,
+  measured velocity control, the autonomous foundation, and vision gating.
+  Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.

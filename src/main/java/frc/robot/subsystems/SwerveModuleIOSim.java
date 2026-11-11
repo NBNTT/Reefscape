@@ -39,7 +39,6 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 		inputs.driveTempCelsius = 25.0;
 
 		inputs.turnAbsolutePositionRad = turnPositionRad;
-		inputs.turnVelocityRadPerSec = turnVelocityRadPerSec;
 		inputs.turnAppliedVolts = turnOutput * 12.0;
 		inputs.turnCurrentAmps = Math.abs(turnOutput) * 20.0;
 		inputs.turnTempCelsius = 25.0;

@@ -75,7 +75,6 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 				&& encoderVoltage < referenceVoltage - 0.05;
 		inputs.absoluteEncoderConnected = encoderConnected;
 		inputs.turnAbsolutePositionRad = absoluteEncoderAngle(encoderVoltage, referenceVoltage);
-		inputs.turnVelocityRadPerSec = 0.0;
 		inputs.turnAppliedVolts = turnMotor.getAppliedOutput() * turnMotor.getBusVoltage();
 		inputs.turnCurrentAmps = turnMotor.getOutputCurrent();
 		inputs.turnTempCelsius = turnMotor.getMotorTemperature();

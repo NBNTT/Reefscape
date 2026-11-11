@@ -70,6 +70,8 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		driveConfig.CurrentLimits.SupplyCurrentLimitEnable = true;
 		driveConfig.CurrentLimits.StatorCurrentLimit = 80.0;
 		driveConfig.CurrentLimits.StatorCurrentLimitEnable = true;
+		driveConfig.Voltage.PeakForwardVoltage = 12.0;
+		driveConfig.Voltage.PeakReverseVoltage = -12.0;
 		driveConfig.Feedback.SensorToMechanismRatio = config.driveGearRatio();
 		driveMotor.getConfigurator().apply(driveConfig);
 
@@ -84,6 +86,8 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		turnConfig.CurrentLimits.SupplyCurrentLimitEnable = true;
 		turnConfig.CurrentLimits.StatorCurrentLimit = 80.0;
 		turnConfig.CurrentLimits.StatorCurrentLimitEnable = true;
+		turnConfig.Voltage.PeakForwardVoltage = 12.0;
+		turnConfig.Voltage.PeakReverseVoltage = -12.0;
 		// Let the TalonFX steer using the CANcoder directly. This runs the
 		// steering loop inside the motor controller instead of at 50 Hz on the
 		// RoboRIO. Gains are placeholders until they are tuned on the new robot.
@@ -145,7 +149,6 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		// is the calibrated module angle. Convert rotations to radians and wrap.
 		double angle = turnAbsolutePosition.getValueAsDouble() * 2.0 * Math.PI;
 		inputs.turnAbsolutePositionRad = MathUtil.inputModulus(angle, -Math.PI, Math.PI);
-		inputs.turnVelocityRadPerSec = 0.0;
 		inputs.turnAppliedVolts = turnVoltage.getValueAsDouble();
 		inputs.turnCurrentAmps = turnCurrent.getValueAsDouble();
 		inputs.turnTempCelsius = turnTemp.getValueAsDouble();
@@ -170,11 +173,6 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 	@Override
 	public void setDriveVoltage(double volts) {
 		driveMotor.setVoltage(MathUtil.clamp(volts, -12.0, 12.0));
-	}
-
-	@Override
-	public void setTurnOutput(double output) {
-		turnMotor.set(MathUtil.clamp(output, -1.0, 1.0));
 	}
 
 	@Override

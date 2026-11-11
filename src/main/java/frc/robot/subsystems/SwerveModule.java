@@ -11,8 +11,8 @@ import frc.robot.Constants.ModuleConstants;
 import org.littletonrobotics.junction.Logger;
 
 /**
- * One swerve module's shared logic: optimize the setpoint, run the steering
- * loop, and send normalized outputs to the hardware layer.
+ * One swerve module's shared logic: optimize the setpoint, run the drive and
+ * steering loops, and send hardware commands.
  *
  * <p>
  * The module angle always comes from the absolute encoder, never from the motor
@@ -49,14 +49,14 @@ public class SwerveModule {
 		driveFeedforward = new SimpleMotorFeedforward(DriveConstants.kDriveKsVolts, DriveConstants.kDriveKvVoltsPerMps);
 	}
 
-	/** Reads hardware without logging. Used once during construction. */
+	/** Reads hardware without logging; also used after a drive-position reset. */
 	public void refreshInputs() {
 		io.updateInputs(inputs);
 	}
 
 	/**
-	 * Called from {@link Swerve#periodic()}. Reads the hardware, runs the steering
-	 * loop, and logs the result.
+	 * Called from {@link Swerve#periodic()}. Reads the hardware, runs the drive and
+	 * steering loops, and logs the result.
 	 */
 	public void periodic() {
 		refreshInputs();
@@ -97,14 +97,17 @@ public class SwerveModule {
 
 	/**
 	 * Stores a new request. The wheel is allowed to turn either way, so
-	 * {@code optimize} picks the shorter path. Steering is applied immediately and
-	 * again in {@link #periodic()}.
+	 * {@code optimize} picks the shorter path. Drive and steering are applied
+	 * immediately and again in {@link #periodic()}.
 	 */
 	public void setDesiredState(SwerveModuleState state) {
 		// Copy before optimize so a shared/static state array is never mutated.
 		SwerveModuleState optimized = new SwerveModuleState(state.speedMetersPerSecond, state.angle);
 		Rotation2d currentAngle = new Rotation2d(inputs.turnAbsolutePositionRad);
 		optimized.optimize(currentAngle);
+		// Keep the logged setpoint in -pi..pi even if a caller passed 359 degrees.
+		optimized = new SwerveModuleState(optimized.speedMetersPerSecond,
+				new Rotation2d(MathUtil.inputModulus(optimized.angle.getRadians(), -Math.PI, Math.PI)));
 		// While the wheel is still turning, reduce drive power so it does not
 		// push sideways and scrub the carpet.
 		optimized.cosineScale(currentAngle);

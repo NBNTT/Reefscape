@@ -75,9 +75,11 @@ or field-oriented driving.
 - Controls work in Teleop and Test, not in Autonomous or Disabled.
 - `SwerveTest` checks forward motion and X-lock.
 - `SwerveControlTest` checks the logic that is hard to test on hardware:
-  module order, gyro sign, pose resets, steering optimization, cosine
-  compensation, stop behavior, vendor steering, teleop interruption, and
-  vision gating.
+  module order, gyro sign, angle wrapping, pose resets, steering optimization,
+  cosine compensation, stop/disabled/initialization behavior, teleop
+  interruption, field- and robot-oriented driving at multiple headings,
+  periodic drive-encoder stability, drive-voltage limits, vendor steering,
+  measured velocity control, the autonomous foundation, and vision gating.
 - Simulation does not prove motor directions, encoder offsets, current limits,
   or carpet behavior.
 

@@ -19,7 +19,6 @@ public interface SwerveModuleIO {
 
 		/* Steering: absolute angle is the real source of truth. */
 		public double turnAbsolutePositionRad = 0.0;
-		public double turnVelocityRadPerSec = 0.0;
 		public double turnAppliedVolts = 0.0;
 		public double turnCurrentAmps = 0.0;
 		public double turnTempCelsius = 0.0;
