@@ -53,9 +53,11 @@ The robot now uses measured wheel velocity, not a fixed percent output.
 
 ### Current limits and temperatures
 
-- REV drive and turn current limits are the old `40 A` values.
-- If the turn motors are NEO 550s, check `turnTempCelsius` after a few minutes of
-  steering; lower the turn limit if they get hot.
+- The old robot uses REV NEO drive and turn motors; the `40 A` limits are
+  intentional. Check `turnTempCelsius` after a few minutes of steering.
+- The analog absolute encoder is assumed to use a 0–5 V full scale. Confirm the
+  sensor before trusting the angle; a 3.3 V sensor would read about two-thirds
+  of the real angle.
 - The CTRE current limits are placeholders.
 
 ### Track width and wheelbase
@@ -138,7 +140,7 @@ Only then take the robot off blocks.
   P-only (`Constants.HeadingConstants`) and separate from the steering PID.
 - Manual rotation always overrides heading hold.
 - Start/Back resets the gyro and pose heading together and clears the held
-  target; `Drive/HeadingResetCount` is logged.
+  target; `Drive/HeadingResetCount` is logged. Both buttons work in every mode.
 - Heading hold is disabled in robot-oriented mode, X-lock, disabled, and
   autonomous.
 - Steering PID gains, deadbands, and algorithms were intentionally not changed.
@@ -163,11 +165,15 @@ Vision is not connected yet. When a camera is added, call:
 swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTagDistanceMeters);
 ```
 
+- Call only from the robot main loop. The pose estimator is not thread-safe; a
+  camera callback thread must queue the measurement.
 - Timestamps must use the same clock as `Timer` / `RobotController`.
 - Provide x, y, and heading standard deviations.
 - The filter rejects invalid poses/timestamps, future timestamps, frames older
-  than 0.5 s, out-of-order frames, too few tags, invalid covariance, and jumps
-  over 1 m or 0.5 rad.
+  than 0.5 s, out-of-order frames, too few tags, invalid covariance, poses
+  outside the field, and jumps over 1 m or 0.5 rad.
+- The field bounds are the 2025 Reefscape values in
+  `Constants.VisionConstants`; update them for the new game.
 - `Vision/Accepted`, `Vision/RejectedReason`, `Vision/AcceptedCount`, and
   `Vision/RejectedCount` are logged for every measurement.
 - Tune `Constants.VisionConstants` only after collecting real camera data.

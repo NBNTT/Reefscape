@@ -1,4 +1,4 @@
-package frc.robot.commands;
+package frc.robot.commands.drivetrain;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.PIDController;
@@ -11,7 +11,7 @@ import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.HeadingConstants;
 import frc.robot.Constants.OIConstants;
-import frc.robot.subsystems.Swerve;
+import frc.robot.subsystems.drivetrain.Swerve;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
@@ -110,7 +110,8 @@ public class SwerveTeleOp extends Command {
 		// low-speed control while still reaching 1.0 at full stick.
 		double forward = shapeInput(forwardSupplier.getAsDouble(), OIConstants.kDeadband);
 		double strafe = shapeInput(strafeSupplier.getAsDouble(), OIConstants.kDeadband);
-		double turnRaw = MathUtil.applyDeadband(turnSupplier.getAsDouble(), OIConstants.kDeadband);
+		double turnInput = MathUtil.clamp(turnSupplier.getAsDouble(), -1.0, 1.0);
+		double turnRaw = MathUtil.applyDeadband(turnInput, OIConstants.kDeadband);
 		double turn = Math.copySign(turnRaw * turnRaw, turnRaw);
 
 		// Right bumper: scale everything down and give the driver feedback.
@@ -182,7 +183,8 @@ public class SwerveTeleOp extends Command {
 	 * Deadband-rescale then square, preserving sign and reaching 1.0 at full stick.
 	 */
 	static double shapeInput(double raw, double deadband) {
-		double deadbanded = MathUtil.applyDeadband(raw, deadband);
+		double clamped = MathUtil.clamp(raw, -1.0, 1.0);
+		double deadbanded = MathUtil.applyDeadband(clamped, deadband);
 		return Math.copySign(deadbanded * deadbanded, deadbanded);
 	}
 

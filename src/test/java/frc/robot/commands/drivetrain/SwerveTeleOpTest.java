@@ -1,4 +1,4 @@
-package frc.robot.commands;
+package frc.robot.commands.drivetrain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,6 +25,12 @@ class SwerveTeleOpTest {
 	void fullStickReachesOne() {
 		assertEquals(1.0, SwerveTeleOp.shapeInput(1.0, 0.1), 1e-12);
 		assertEquals(-1.0, SwerveTeleOp.shapeInput(-1.0, 0.1), 1e-12);
+	}
+
+	@Test
+	void rawInputIsClamped() {
+		assertEquals(1.0, SwerveTeleOp.shapeInput(1.2, 0.1), 1e-12);
+		assertEquals(-1.0, SwerveTeleOp.shapeInput(-1.2, 0.1), 1e-12);
 	}
 
 	@Test

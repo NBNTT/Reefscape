@@ -1,4 +1,4 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.drivetrain;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.controller.PIDController;
@@ -34,8 +34,6 @@ public class SwerveModule {
 	private final SimpleMotorFeedforward driveFeedforward;
 	/** Where this module is trying to point and how fast. */
 	private SwerveModuleState setpoint = new SwerveModuleState();
-	/** True after stop(); prevents the speed loop from fighting a stopped robot. */
-	private boolean stopped = true;
 
 	public SwerveModule(int index, SwerveModuleIO io) {
 		this.index = index;
@@ -55,15 +53,12 @@ public class SwerveModule {
 	}
 
 	/**
-	 * Called from {@link Swerve#periodic()}. Reads the hardware, runs the drive and
-	 * steering loops, and logs the result.
+	 * Called from {@link Swerve#periodic()}. Reads the hardware and logs it. The
+	 * commands call {@link #setDesiredState(SwerveModuleState)} every cycle; that
+	 * is where the drive and steering outputs are applied.
 	 */
 	public void periodic() {
 		refreshInputs();
-		if (!stopped) {
-			applyDriveControl();
-		}
-		applyTurnControl();
 		Logger.processInputs("Drive/Module" + index, inputs);
 		Logger.recordOutput("Drive/Module" + index + "/Setpoint", setpoint);
 
@@ -96,9 +91,8 @@ public class SwerveModule {
 	}
 
 	/**
-	 * Stores a new request. The wheel is allowed to turn either way, so
-	 * {@code optimize} picks the shorter path. Drive and steering are applied
-	 * immediately and again in {@link #periodic()}.
+	 * Applies a new request. The wheel is allowed to turn either way, so
+	 * {@code optimize} picks the shorter path. Call this every command cycle.
 	 */
 	public void setDesiredState(SwerveModuleState state) {
 		// Copy before optimize so a shared/static state array is never mutated.
@@ -112,15 +106,12 @@ public class SwerveModule {
 		// push sideways and scrub the carpet.
 		optimized.cosineScale(currentAngle);
 		setpoint = optimized;
-		stopped = false;
-		// Apply both loops immediately instead of waiting for the next periodic().
 		applyDriveControl();
 		applyTurnControl();
 	}
 
 	/**
 	 * Drives at the requested wheel speed using measured velocity plus feedforward.
-	 * kI and kD are zero, so it is safe to call this twice in one cycle.
 	 */
 	private void applyDriveControl() {
 		// Do not apply kS at a zero setpoint; otherwise a calibrated friction term
@@ -142,15 +133,12 @@ public class SwerveModule {
 			return;
 		}
 
-		// The current gains are P-only, so it is safe to run this again after a
-		// command updates the setpoint in the same cycle.
 		double turnOutput = turningPID.calculate(inputs.turnAbsolutePositionRad, setpoint.angle.getRadians());
 		io.setTurnOutput(MathUtil.clamp(turnOutput, -1.0, 1.0));
 	}
 
 	/** Stops drive and holds the current steering angle. */
 	public void stop() {
-		stopped = true;
 		io.setDriveVoltage(0.0);
 		holdCurrentAngle();
 		applyTurnControl();

@@ -32,11 +32,13 @@ The active path is selected by `Constants.kHardware`.
 | Left bumper | Toggle field-oriented / robot-oriented |
 | Start | Reset current direction to field-forward (also Back) |
 
-The original 2025 code used **Back** for the gyro reset; Start was commented
-out. Start is now the primary reset as requested, and Back remains bound so the
-old control is not lost. Neither button resets during normal driving.
+The controllers are **8BitDo Ultimate 2 Wireless** in Xbox mode. Start is the
+`+`/Menu button and Back is the `−`/View button. The original 2025 code used
+Back for the gyro reset; Start was commented out. Start is now the primary reset
+as requested, and Back remains bound so the old control is not lost. Both work
+in every mode, including Disabled and Autonomous.
 
-The Ultimate 3C+ extra buttons are not mapped yet. Move the robot-oriented
+The 8BitDo extra back buttons are not mapped yet. Move the robot-oriented
 toggle to one of them by changing the `driver.leftBumper()` binding in
 `RobotContainer`.
 
@@ -45,7 +47,8 @@ toggle to one of them by changing the `driver.leftBumper()` binding in
 The dashboard **Auto** chooser defaults to **Do Nothing**. **Drive Forward**
 resets the pose, drives robot-relative at 1 m/s for 2 seconds, and stops.
 
-Add game autos in `Autos` and register them in `RobotContainer`.
+Add game autos in `commands/drivetrain/Autos.java` and register them in
+`RobotContainer`.
 
 ## Vision
 
@@ -55,9 +58,12 @@ Vision is a foundation, not a camera implementation yet. A future camera calls:
 swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTagDistanceMeters);
 ```
 
-`Swerve` filters stale, future, out-of-order, low-tag, invalid-covariance, and
-large-jump measurements, then logs `Vision/Accepted`, `Vision/RejectedReason`,
-and accepted/rejected counts. See `docs/VALIDATION.md`.
+Call it from the robot main loop only; the pose estimator is not thread-safe.
+`Swerve` filters stale, future, out-of-order, low-tag, invalid-covariance,
+outside-field, and large-jump measurements, then logs `Vision/Accepted`,
+`Vision/RejectedReason`, and accepted/rejected counts. The 2025 field bounds
+live in `Constants.VisionConstants` and must be updated for a new game. See
+`docs/VALIDATION.md`.
 
 ## Drive control
 
@@ -82,6 +88,23 @@ and accepted/rejected counts. See `docs/VALIDATION.md`.
 - The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
   steering in the TalonFX.
 - Teleop is blocked in Autonomous and Disabled.
+
+## Repository layout
+
+```text
+frc/robot/
+  Constants.java          robot-wide constants and hardware selection
+  Robot.java              WPILib/AdvantageKit main loop
+  RobotContainer.java     wiring, controls, auto chooser
+  commands/drivetrain/    SwerveTeleOp, Autos
+  subsystems/drivetrain/  Swerve, SwerveModule, Gyro, IO implementations
+```
+
+The next robot can add `subsystems/superstructure/`, `subsystems/vision/`, and
+their commands beside the drivetrain. Keep hardware behind an IO interface and
+keep game-specific constants in `Constants`. The drivetrain has no dependency
+on the superstructure, so it can be copied to a new SystemCore project and the
+REV/CTRE IO implementation selected in one place.
 
 ## Build, test, and deploy
 

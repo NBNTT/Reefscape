@@ -8,9 +8,9 @@ import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.RobotModeTriggers;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OIConstants;
-import frc.robot.commands.Autos;
-import frc.robot.commands.SwerveTeleOp;
-import frc.robot.subsystems.Swerve;
+import frc.robot.commands.drivetrain.Autos;
+import frc.robot.commands.drivetrain.SwerveTeleOp;
+import frc.robot.subsystems.drivetrain.Swerve;
 
 /**
  * Wires the robot together: the drivetrain, the driver controller, and the
@@ -39,13 +39,14 @@ public class RobotContainer {
 		// Hold A to lock the wheels in an X.
 		driver.a().and(driverControl).whileTrue(Commands.run(swerve::lockWheels, swerve));
 		// Start resets the current direction to field-forward. Back is also bound
-		// because the original 2025 code used Back for the gyro reset.
+		// because the original 2025 code used Back for the gyro reset. These are
+		// intentionally available in every mode, including Disabled/Autonomous.
 		Command resetHeading = Commands.runOnce(() -> {
 			swerve.resetHeading();
 			driveCommand.resetHeadingHold();
 		});
-		driver.start().and(driverControl).onTrue(resetHeading);
-		driver.back().and(driverControl).onTrue(resetHeading);
+		driver.start().onTrue(resetHeading);
+		driver.back().onTrue(resetHeading);
 		// Tap the left bumper to switch between field-oriented and robot-oriented.
 		driver.leftBumper().and(driverControl).onTrue(Commands.runOnce(() -> robotOriented = !robotOriented));
 	}

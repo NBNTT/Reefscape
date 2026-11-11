@@ -23,8 +23,10 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   REVLib **2025.0.1**. The `akit-autolog` processor in `build.gradle` must match
   the vendor JSON version.
 - No PathPlanner in this season.
-- Source: `Swerve`, `SwerveModule`, `SwerveModuleIO*`, `GyroIO*`,
-  `SwerveTeleOp`, `Autos`, `Constants`, `RobotContainer`.
+- Source: `subsystems/drivetrain/Swerve`, `SwerveModule`, `SwerveModuleIO*`,
+  `GyroIO*`; `commands/drivetrain/SwerveTeleOp`, `Autos`; `Constants`,
+  `RobotContainer`. Add future superstructure/vision beside them, not inside
+  the drivetrain.
 - Hardware: `Constants.kHardware = REV_MK4N` is the 2024 test robot;
   `CTRE_MK5N` is the future Kraken robot and needs real IDs/offsets filled.
 - Drive control is measured wheel velocity with feedforward; do not reintroduce
@@ -35,10 +37,12 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 - Heading hold uses the separate `HeadingConstants` PID. Manual rotation must
   override it; it must stay off in robot-oriented mode, X-lock, disabled, and
   autonomous.
-- Start and Back reset the gyro and pose heading together. Back was the original
-  2025 binding; do not remove either without an explicit control decision.
-- Vision must go through `Swerve.addVisionMeasurement` so age, order,
-  covariance, jump gates, and accepted/rejected logs are preserved.
+- Start and Back reset the gyro and pose heading together in every mode. Back
+  was the original 2025 binding; do not remove either without an explicit
+  control decision.
+- Vision must go through `Swerve.addVisionMeasurement` from the robot main
+  loop only, so age, order, covariance, field bounds, jump gates, and
+  accepted/rejected logs are preserved. The estimator is not thread-safe.
 
 ## Read first
 

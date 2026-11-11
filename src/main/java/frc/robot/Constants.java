@@ -249,9 +249,9 @@ public final class Constants {
 		/* Reject a measurement that jumps farther than this from the current pose. */
 		public static final double kMaxTranslationInnovationMeters = 1.0;
 		public static final double kMaxRotationInnovationRadians = 0.5;
-		/* Fallback covariance for the simple addVisionMeasurement overload. */
-		public static final double kDefaultTranslationStdDevMeters = 0.5;
-		public static final double kDefaultRotationStdDevRadians = 999999.0;
+		/* 2025 Reefscape field bounds; update these for each new game. */
+		public static final double kFieldLengthMeters = 16.54175;
+		public static final double kFieldWidthMeters = 8.21055;
 	}
 
 	public static final class OIConstants {

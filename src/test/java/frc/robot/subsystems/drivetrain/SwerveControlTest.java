@@ -1,4 +1,4 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.drivetrain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,10 +13,11 @@ import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.OIConstants;
-import frc.robot.commands.Autos;
-import frc.robot.commands.SwerveTeleOp;
+import frc.robot.commands.drivetrain.Autos;
+import frc.robot.commands.drivetrain.SwerveTeleOp;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.Test;
@@ -327,6 +328,48 @@ class SwerveControlTest {
 	}
 
 	@Test
+	void slowModeScalesAndRumbles() {
+		FakeGyroIO gyro = new FakeGyroIO();
+		Swerve swerve = new Swerve(createFakeModules(), gyro);
+		double[] rumble = {0.0};
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> 1.0, () -> 0.0, () -> 0.0, () -> true, () -> false,
+				() -> true, value -> rumble[0] = value);
+		command.initialize();
+
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			command.execute();
+		}
+
+		assertEquals(DriveConstants.kMaxSpeedMetersPerSecond * OIConstants.kSlowModeFactor,
+				command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-6);
+		assertEquals(OIConstants.kRumble, rumble[0], 1e-9);
+	}
+
+	@Test
+	void autonomousDriveForwardRunsAndStops() {
+		Swerve swerve = createSimSwerve();
+		CommandScheduler scheduler = CommandScheduler.getInstance();
+		scheduler.cancelAll();
+		// The test harness has no enabled Driver Station, so let the auto run.
+		Command auto = Autos.driveForward(swerve, 1.0, 0.1).ignoringDisable(true);
+
+		auto.schedule();
+		for (int i = 0; i < 30; i++) {
+			Timer.delay(0.02);
+			scheduler.run();
+			// The test drives the subsystem clock explicitly as well as the
+			// scheduler clock so the pose integrates deterministically.
+			swerve.periodic();
+		}
+
+		assertTrue(swerve.getPose().getX() > 0.01,
+				"Pose was " + swerve.getPose() + ", scheduled=" + auto.isScheduled());
+		assertFalse(auto.isScheduled());
+		scheduler.cancelAll();
+	}
+
+	@Test
 	void pureStrafeStillReachesMaximum() {
 		FakeGyroIO gyro = new FakeGyroIO();
 		Swerve swerve = new Swerve(createFakeModules(), gyro);
@@ -402,7 +445,13 @@ class SwerveControlTest {
 		// A one-second-old frame is stale.
 		swerve.addVisionMeasurement(new Pose2d(0.1, 0.0, new Rotation2d()), now - 1.0, VecBuilder.fill(0.1, 0.1, 0.1),
 				2, 1.0);
-		assertEquals(2, swerve.getRejectedVisionCountForTesting());
+		// A one-second future frame is not valid.
+		swerve.addVisionMeasurement(new Pose2d(0.1, 0.0, new Rotation2d()), now + 1.0, VecBuilder.fill(0.1, 0.1, 0.1),
+				2, 1.0);
+		// A pose outside the field is not valid.
+		swerve.addVisionMeasurement(new Pose2d(-0.5, 0.0, new Rotation2d()), now, VecBuilder.fill(0.1, 0.1, 0.1), 2,
+				1.0);
+		assertEquals(4, swerve.getRejectedVisionCountForTesting());
 	}
 
 	@Test
@@ -541,6 +590,14 @@ class SwerveControlTest {
 			assertTrue(angleError < 1e-6,
 					"Angle mismatch at module " + i + " heading " + headingRad + " robotOriented " + robotOriented);
 		}
+	}
+
+	private static Swerve createSimSwerve() {
+		SwerveModuleIO[] ios = new SwerveModuleIO[4];
+		for (int i = 0; i < ios.length; i++) {
+			ios[i] = new SwerveModuleIOSim();
+		}
+		return new Swerve(ios, new GyroIOSim(() -> 0.0));
 	}
 
 	private static SwerveTeleOp createDriveCommand(Swerve swerve, DoubleSupplier forward, DoubleSupplier turn,

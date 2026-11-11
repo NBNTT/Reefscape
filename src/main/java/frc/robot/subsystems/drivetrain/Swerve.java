@@ -1,8 +1,7 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.drivetrain;
 
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
-import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -228,20 +227,14 @@ public class Swerve extends SubsystemBase {
 	}
 
 	/**
-	 * Convenience overload with the default covariance: translation is trusted,
-	 * heading is effectively ignored.
-	 */
-	public void addVisionMeasurement(Pose2d visionPose, double timestampSeconds) {
-		addVisionMeasurement(visionPose, timestampSeconds,
-				VecBuilder.fill(VisionConstants.kDefaultTranslationStdDevMeters,
-						VisionConstants.kDefaultTranslationStdDevMeters, VisionConstants.kDefaultRotationStdDevRadians),
-				1, 0.0);
-	}
-
-	/**
 	 * Feeds a timestamped camera pose into the estimator after checking that it is
-	 * fresh, ordered, sane, and close enough to the current pose. Accepted and
-	 * rejected measurements are logged with the reason.
+	 * fresh, ordered, sane, on the field, and close enough to the current pose.
+	 * Accepted and rejected measurements are logged with the reason.
+	 *
+	 * <p>
+	 * Call this from the robot main loop only. The pose estimator is not
+	 * thread-safe; a camera callback thread must queue its measurement and let the
+	 * main loop submit it.
 	 *
 	 * @param visionPose
 	 *            field-relative camera pose
@@ -285,6 +278,9 @@ public class Swerve extends SubsystemBase {
 			rejectionReason = "too few tags";
 		} else if (!isValidStdDevs(stdDevs)) {
 			rejectionReason = "invalid covariance";
+		} else if (visionPose.getX() < 0.0 || visionPose.getX() > VisionConstants.kFieldLengthMeters
+				|| visionPose.getY() < 0.0 || visionPose.getY() > VisionConstants.kFieldWidthMeters) {
+			rejectionReason = "outside field";
 		} else if (translationInnovation > VisionConstants.kMaxTranslationInnovationMeters) {
 			rejectionReason = "translation jump";
 		} else if (rotationInnovation > VisionConstants.kMaxRotationInnovationRadians) {

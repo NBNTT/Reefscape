@@ -1,4 +1,4 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.drivetrain;
 
 import com.revrobotics.REVLibError;
 import com.revrobotics.spark.SparkBase.PersistMode;
@@ -71,8 +71,8 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 		// the very bottom or top of the range usually means it is unplugged.
 		double encoderVoltage = absoluteEncoder.getAverageVoltage();
 		double referenceVoltage = RobotController.getVoltage5V();
-		boolean encoderConnected = referenceVoltage > 0.1 && encoderVoltage > 0.05
-				&& encoderVoltage < referenceVoltage - 0.05;
+		boolean encoderConnected = referenceVoltage > 0.1 && encoderVoltage > 0.01
+				&& encoderVoltage < referenceVoltage - 0.01;
 		inputs.absoluteEncoderConnected = encoderConnected;
 		inputs.turnAbsolutePositionRad = absoluteEncoderAngle(encoderVoltage, referenceVoltage);
 		inputs.turnAppliedVolts = turnMotor.getAppliedOutput() * turnMotor.getBusVoltage();

@@ -1,4 +1,4 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.drivetrain;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,10 +15,9 @@ class SwerveTest {
 	@Test
 	void drivesForwardInSimulation() {
 		Swerve swerve = createSimSwerve();
-		// Ask for 1 m/s forward, then run 60 robot cycles (about 1.2 s).
-		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
-
+		// Commands set their drivetrain state every cycle, so do the same here.
 		for (int i = 0; i < 60; i++) {
+			swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
 			swerve.periodic();
 		}
 
@@ -30,10 +29,10 @@ class SwerveTest {
 	@Test
 	void locksWheelsInX() {
 		Swerve swerve = createSimSwerve();
-		swerve.lockWheels();
 
 		// Give the steering PID time to settle (100 cycles = 2 s).
 		for (int i = 0; i < 100; i++) {
+			swerve.lockWheels();
 			swerve.periodic();
 		}
 
