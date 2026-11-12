@@ -25,6 +25,7 @@
   optimization, cosine compensation, stop behavior, vendor steering, teleop
   interruption, input shaping, heading hold, health/fault recovery, delayed
   vision, disabled reset, and measured velocity control.
+- `PoseHistoryTest`: delayed-vision pose history, interpolation, eviction, and reset.
 - `ConstantsTest`: startup wiring validation and the unfinished CTRE gate.
 - `SwerveTeleOpTest`: input shaping.
 

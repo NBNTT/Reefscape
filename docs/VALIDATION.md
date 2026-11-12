@@ -118,6 +118,8 @@ or field-oriented driving.
   module-fault safe stop, semantic mode transitions, disabled heading reset,
   invalid/NaN inputs, zero-speed wheel hold, and CTRE steering wraparound.
 - `ConstantsTest` checks startup validation, including the unfinished CTRE gate.
+- `PoseHistoryTest` checks the delayed-vision history ring: interpolation,
+  eviction of old samples, and reset behavior.
 - `SwerveTeleOpTest` checks deadband continuity, squared response, sign
   preservation, and full-stick reach.
 - Simulation does not prove motor directions, encoder offsets, current limits,

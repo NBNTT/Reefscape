@@ -169,8 +169,8 @@ drive-encoder stability, drive-voltage limits, vendor steering, measured
 velocity control, the autonomous foundation, vision gating, delayed-vision
 history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
 module-fault safe stop, semantic mode transitions, disabled heading reset,
-invalid/NaN inputs, zero-speed wheel hold, startup validation, and CTRE
-steering wraparound.
+invalid/NaN inputs, zero-speed wheel hold, pose-history interpolation/eviction,
+startup validation, and CTRE steering wraparound.
 
 GitHub Actions runs `spotlessCheck build` on every pull request and on `main`.
 No robot or camera is needed for the offline test suite.

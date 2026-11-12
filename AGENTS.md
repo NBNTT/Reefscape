@@ -95,7 +95,8 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   gating and delayed history, encoder/gyro fault and recovery, module-fault safe
   stop, semantic mode transitions, disabled reset, startup validation, CTRE
   steering wrap, and CTRE config retry. `ConstantsTest` covers wiring validation.
-  `SwerveTeleOpTest` covers input shaping. Expand them before changing behavior.
+  `PoseHistoryTest` covers the delayed-vision history ring. `SwerveTeleOpTest`
+  covers input shaping. Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.
