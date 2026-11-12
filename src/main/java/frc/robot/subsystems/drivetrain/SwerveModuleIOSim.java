@@ -48,6 +48,7 @@ public class SwerveModuleIOSim implements SwerveModuleIO {
 		inputs.hardwareConfigured = true;
 		inputs.driveConnected = true;
 		inputs.turnConnected = true;
+		inputs.telemetryValid = true;
 	}
 
 	@Override

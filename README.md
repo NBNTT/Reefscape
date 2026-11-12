@@ -61,12 +61,17 @@ changing `DriverControls.toggleRobotOriented()`.
 - REV motor CAN faults are sampled every 100 ms to keep the old robot's CAN load
   bounded; encoder angle health is still checked every cycle.
 - A disconnected, non-finite, or implausibly jumping absolute encoder is never
-  used for steering. The module neutralizes immediately, reports a fault after
-  100 ms, and recovers after 200 ms of good readings.
-- If one module is faulted or has a bad reading, only that module is neutralized;
-  the other three continue in a conservative degraded mode capped at 1 m/s and
-  1 rad/s. Two or more unavailable modules stop the drivetrain. The degraded
-  mode is software-validated only and still needs physical testing.
+  used for steering. A single bad sample isolates that module for the cycle but
+  is not treated as a module failure. Sustained steering/angle failure stops the
+  drivetrain after the 100 ms fault window; good readings restore operation after
+  a 200 ms confirmation.
+- A drive-only failure is less severe: the failed module's drive is set to zero,
+  but its steering remains active so the unpowered wheel can follow the intended
+  direction. One drive failure uses the conservative 1 m/s / 1 rad/s three-module
+  mode; two drive failures stop the drivetrain. The degraded mode is
+  software-validated only and still needs physical testing.
+- Stale temperature/current telemetry is logged but does not disable a working
+  motor.
 - A disconnected or stale gyro forces robot-oriented driving, disables heading
   hold, and keeps the last valid heading for odometry. Field-oriented driving
   resumes after the gyro is healthy again.
@@ -171,7 +176,8 @@ heading-hold capture/hold/manual override/wraparound/reset, input shaping
 drive-encoder stability, drive-voltage limits, vendor steering, measured
 velocity control, the autonomous foundation, vision gating, delayed-vision
 history, encoder disconnect/invalid/jump/recovery, rapid steering and sensor
-noise rejection, gyro fallback/recovery, one- and two-module fault behavior,
+noise rejection, gyro fallback/recovery, drive-only and steering fault behavior,
+telemetry-only faults, transient sample recovery,
 semantic mode transitions, disabled heading reset, invalid/NaN inputs,
 zero-speed wheel hold, startup validation, and CTRE config retry.
 

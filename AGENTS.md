@@ -52,10 +52,15 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   loop only, so age, order, covariance, field bounds, historical-pose,
   innovation, and accepted/rejected logs are preserved. The estimator is not
   thread-safe.
-- A module with a bad encoder reading must never steer or drive. One unavailable
-  module is neutralized and the other three continue at the conservative
-  `kDegraded...` limits; two or more unavailable modules stop the drivetrain.
-  Do not remove those limits without physical three-wheel validation.
+- A bad steering/angle sample must never drive or steer that module. A single
+  sample isolates it for that cycle only; sustained steering failure stops the
+  drivetrain. A drive-only failure keeps that module's steering active and allows
+  the other three at the conservative `kDegraded...` limits; two drive failures
+  stop the drivetrain. Do not remove those limits without physical validation.
+- Telemetry-only failures (temperature/current/voltage signals) must not disable
+  a working motor or steering loop.
+- Fault windows are time-based: about 100 ms to confirm, 200 ms to recover.
+  Do not turn a single missed packet into a sustained module failure.
 - REV CAN fault flags are polled every 100 ms by design; encoder angle is
   checked every cycle. Measure loop/CAN load before changing that interval.
 - The steering-jump detector compares measured encoder movement over time at a
@@ -97,8 +102,9 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   driving at multiple headings, heading-hold capture/hold/manual override/
   wraparound/reset, periodic drive-encoder stability, drive-voltage limits,
   vendor steering, measured velocity control, the autonomous foundation, vision
-  gating and delayed history, encoder/gyro fault and recovery, one/two-module
-  fault behavior, semantic mode transitions, disabled reset, startup validation,
+  gating and delayed history, encoder/gyro fault and recovery, drive-only and
+  steering faults, transient sample isolation, telemetry-only faults, semantic
+  mode transitions, disabled reset, startup validation,
   and CTRE config retry. `ConstantsTest` covers wiring validation.
   `SwerveTeleOpTest` covers input shaping. Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.

@@ -59,8 +59,9 @@ public class Swerve extends SubsystemBase {
 	 * Gyro health. A bad frame immediately disables field-oriented driving; the
 	 * debounced flag is what the Driver Station sees.
 	 */
-	private final FaultMonitor gyroHealth = new FaultMonitor(HealthConstants.kGyroFaultDebounceFrames,
-			HealthConstants.kGyroRecoveryFrames);
+	private final FaultMonitor gyroHealth = new FaultMonitor(HealthConstants.kGyroFaultDebounceSeconds,
+			HealthConstants.kGyroRecoverySeconds);
+	private double lastGyroHealthTimeSeconds = Timer.getFPGATimestamp();
 	private double lastValidYawRad = 0.0;
 	private boolean hasValidYaw = false;
 
@@ -119,7 +120,7 @@ public class Swerve extends SubsystemBase {
 		}
 		gyroIO.updateInputs(gyroInputs);
 		boolean valid = gyroInputs.connected && Double.isFinite(gyroInputs.yawRad);
-		gyroHealth.update(valid, "gyro disconnected or stale");
+		gyroHealth.update(valid, "gyro disconnected or stale", DriveConstants.kLoopPeriodSeconds);
 		hasValidYaw = valid;
 		lastValidYawRad = valid ? gyroInputs.yawRad : 0.0;
 		SwerveDrivePoseEstimator estimator = new SwerveDrivePoseEstimator(DriveConstants.kDriveKinematics,
@@ -127,6 +128,7 @@ public class Swerve extends SubsystemBase {
 		// Seed WPILib's internal pose history so a measurement received before the
 		// first periodic cycle still has a timestamped sample.
 		estimator.updateWithTime(Timer.getFPGATimestamp(), new Rotation2d(effectiveYawRad()), getModulePositions());
+		lastGyroHealthTimeSeconds = Timer.getFPGATimestamp();
 		return estimator;
 	}
 
@@ -246,7 +248,7 @@ public class Swerve extends SubsystemBase {
 				: DriveConstants.kMaxSpeedMetersPerSecond;
 		SwerveDriveKinematics.desaturateWheelSpeeds(desiredStates, maxSpeed);
 		for (int i = 0; i < modules.length; i++) {
-			if (modules[i].isHealthy() && modules[i].hasValidReading()) {
+			if (modules[i].isSteeringHealthy() && modules[i].hasValidReading()) {
 				modules[i].setDesiredState(desiredStates[i]);
 			} else {
 				modules[i].stop();
@@ -281,20 +283,29 @@ public class Swerve extends SubsystemBase {
 	}
 
 	/**
-	 * Full only when every module has trusted data. One unavailable module is a
-	 * conservative three-module mode; two or more stop the drivetrain.
+	 * Steering/angle failure stops the drivetrain because the wheel cannot be aimed
+	 * safely. One drive-only failure leaves a conservative three-module mode; two
+	 * or more drive failures stop it.
 	 */
 	public DriveMode getDriveMode() {
-		int unavailable = 0;
+		int driveFaults = 0;
+		int steeringFaults = 0;
+		int invalidSteering = 0;
 		for (SwerveModule module : modules) {
-			if (!module.isHealthy() || !module.hasValidReading()) {
-				unavailable++;
+			if (!module.isSteeringHealthy()) {
+				steeringFaults++;
+			}
+			if (!module.isDriveHealthy()) {
+				driveFaults++;
+			}
+			if (!module.hasValidReading()) {
+				invalidSteering++;
 			}
 		}
-		if (unavailable == 0) {
-			return DriveMode.FULL;
+		if (steeringFaults > 0 || driveFaults > 1 || invalidSteering > 1 || (driveFaults > 0 && invalidSteering > 0)) {
+			return DriveMode.STOPPED;
 		}
-		return unavailable == 1 ? DriveMode.DEGRADED : DriveMode.STOPPED;
+		return driveFaults == 1 ? DriveMode.DEGRADED : DriveMode.FULL;
 	}
 
 	/** Field-oriented driving needs a currently valid gyro reading. */
@@ -507,8 +518,14 @@ public class Swerve extends SubsystemBase {
 	}
 
 	private void updateGyroHealth() {
+		double now = Timer.getFPGATimestamp();
+		double dt = now - lastGyroHealthTimeSeconds;
+		lastGyroHealthTimeSeconds = now;
+		if (!Double.isFinite(dt) || dt < DriveConstants.kLoopPeriodSeconds) {
+			dt = DriveConstants.kLoopPeriodSeconds;
+		}
 		boolean valid = gyroInputs.connected && Double.isFinite(gyroInputs.yawRad);
-		gyroHealth.update(valid, "gyro disconnected or stale");
+		gyroHealth.update(valid, "gyro disconnected or stale", dt);
 		if (valid) {
 			lastValidYawRad = gyroInputs.yawRad;
 			hasValidYaw = true;
@@ -524,8 +541,11 @@ public class Swerve extends SubsystemBase {
 		StringBuilder summary = new StringBuilder();
 		for (int i = 0; i < modules.length; i++) {
 			SwerveModule module = modules[i];
-			if (!module.isHealthy()) {
-				appendFault(summary, "module " + i + ": " + module.getFaultReason());
+			if (!module.isSteeringHealthy()) {
+				appendFault(summary, "module " + i + " steering: " + module.getSteeringFaultReason());
+			}
+			if (!module.isDriveHealthy()) {
+				appendFault(summary, "module " + i + " drive: " + module.getDriveFaultReason());
 			}
 		}
 		if (!gyroHealth.isHealthy()) {
@@ -537,7 +557,7 @@ public class Swerve extends SubsystemBase {
 		String previousSummary = faultSummary;
 		faultSummary = newSummary;
 		if (active && !faultActive) {
-			DriverStation.reportError("Drivetrain fault: " + newSummary + ". " + blockedReason(), false);
+			DriverStation.reportError("Drivetrain fault: " + blockedReason(), false);
 			faultCount++;
 		} else if (!active && faultActive) {
 			DriverStation.reportWarning("Drivetrain recovered: " + previousSummary, false);
@@ -559,23 +579,33 @@ public class Swerve extends SubsystemBase {
 	/** Human-readable reason driving is limited, or an empty string. */
 	private String blockedReason() {
 		DriveMode mode = getDriveMode();
-		if (gyroHealth.isHealthy() && gyroHealth.isValid() && mode == DriveMode.FULL) {
+		boolean readingsValid = true;
+		for (SwerveModule module : modules) {
+			if (!module.hasValidReading() || !module.hasValidDrive()) {
+				readingsValid = false;
+				break;
+			}
+		}
+		if (gyroHealth.isHealthy() && gyroHealth.isValid() && mode == DriveMode.FULL && readingsValid) {
 			return "";
 		}
 		StringBuilder reason = new StringBuilder(faultSummary);
 		for (int i = 0; i < modules.length; i++) {
 			SwerveModule module = modules[i];
-			if (module.isHealthy() && !module.hasValidReading()) {
-				appendFault(reason, "module " + i + " bad reading: " + module.getInvalidReason());
+			if (module.isSteeringHealthy() && !module.hasValidReading()) {
+				appendFault(reason, "module " + i + " steering invalid: " + module.getInvalidReason());
+			}
+			if (module.isDriveHealthy() && !module.hasValidDrive()) {
+				appendFault(reason, "module " + i + " drive invalid: " + module.getDriveInvalidReason());
 			}
 		}
 		if (!isFieldOrientedAvailable()) {
 			appendFault(reason, "field heading unavailable; robot-oriented fallback");
 		}
 		if (mode == DriveMode.STOPPED) {
-			appendFault(reason, "driving disabled: two or more modules unavailable");
+			appendFault(reason, "driving disabled: unsafe steering/angle fault or two drive faults");
 		} else if (mode == DriveMode.DEGRADED) {
-			appendFault(reason, "degraded three-module mode active; speed capped");
+			appendFault(reason, "one drive module unavailable; steering retained; speed capped");
 		}
 		return reason.toString();
 	}

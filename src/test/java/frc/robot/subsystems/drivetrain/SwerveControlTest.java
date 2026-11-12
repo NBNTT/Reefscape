@@ -33,6 +33,11 @@ import org.junit.jupiter.api.Test;
  * interruption, and vision gating without touching a real robot.
  */
 class SwerveControlTest {
+	private static final int ENCODER_FAULT_FRAMES = frames(HealthConstants.kEncoderFaultDebounceSeconds);
+	private static final int ENCODER_RECOVERY_FRAMES = frames(HealthConstants.kEncoderRecoverySeconds);
+	private static final int GYRO_FAULT_FRAMES = frames(HealthConstants.kGyroFaultDebounceSeconds);
+	private static final int GYRO_RECOVERY_FRAMES = frames(HealthConstants.kGyroRecoverySeconds);
+
 	@Test
 	void moduleOrderAndKinematicsArePreserved() {
 		FakeModuleIO[] ios = createFakeModules();
@@ -495,6 +500,42 @@ class SwerveControlTest {
 	}
 
 	@Test
+	void singleDriveSampleIsolatesOnlyDrive() {
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io);
+
+		io.driveConnected = false;
+		module.periodic();
+		assertTrue(module.isDriveHealthy());
+		assertFalse(module.hasValidDrive());
+		assertTrue(module.isSteeringHealthy());
+
+		module.setDesiredState(new SwerveModuleState(1.0, Rotation2d.fromDegrees(45.0)));
+		assertEquals(0.0, io.driveVoltage, 1e-9);
+		assertTrue(io.turnOutput > 0.0);
+
+		io.driveConnected = true;
+		module.periodic();
+		assertTrue(module.isDriveHealthy());
+		assertTrue(module.hasValidDrive());
+	}
+
+	@Test
+	void telemetryFaultDoesNotDisableMotors() {
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io);
+		io.telemetryValid = false;
+
+		for (int i = 0; i < ENCODER_FAULT_FRAMES + ENCODER_RECOVERY_FRAMES; i++) {
+			module.periodic();
+		}
+		assertTrue(module.isHealthy());
+
+		module.setDesiredState(new SwerveModuleState(1.0, new Rotation2d()));
+		assertTrue(io.driveVoltage > 0.0);
+	}
+
+	@Test
 	void absoluteEncoderDisconnectStopsModuleAndRecovers() {
 		FakeModuleIO io = new FakeModuleIO();
 		SwerveModule module = new SwerveModule(0, io);
@@ -509,18 +550,18 @@ class SwerveControlTest {
 		assertEquals(0.0, io.driveVoltage, 1e-9);
 		assertEquals(0.0, io.turnOutput, 1e-9);
 
-		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			module.periodic();
 		}
 		assertFalse(module.isHealthy());
-		assertTrue(module.getFaultReason().contains("encoder"));
+		assertTrue(module.getSteeringFaultReason().contains("encoder"));
 
 		io.absoluteEncoderConnected = true;
-		for (int i = 0; i < HealthConstants.kEncoderRecoveryFrames; i++) {
+		for (int i = 0; i < ENCODER_RECOVERY_FRAMES; i++) {
 			module.periodic();
 		}
 		assertTrue(module.isHealthy());
-		assertTrue(module.getFaultReason().isEmpty());
+		assertTrue(module.getSteeringFaultReason().isEmpty());
 	}
 
 	@Test
@@ -536,14 +577,14 @@ class SwerveControlTest {
 
 		// A 2 rad jump is not physically plausible in 20 ms.
 		io.turnAbsolutePositionRad = 2.0;
-		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			module.periodic();
 		}
 		assertFalse(module.isHealthy());
 		assertEquals(0.0, module.getPosition().angle.getRadians(), 1e-9);
 
 		// Once the new angle stays stable, it is accepted and the module recovers.
-		for (int i = 0; i < HealthConstants.kAngleJumpConfirmFrames + HealthConstants.kEncoderRecoveryFrames; i++) {
+		for (int i = 0; i < HealthConstants.kAngleJumpConfirmFrames + ENCODER_RECOVERY_FRAMES; i++) {
 			module.periodic();
 		}
 		assertTrue(module.isHealthy());
@@ -551,22 +592,25 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void oneModuleFaultAllowsDegradedThreeWheelDriving() {
+	void oneDriveFaultAllowsDegradedThreeWheelDriving() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
-		ios[2].absoluteEncoderConnected = false;
-		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+		ios[2].hardwareConfigured = false;
+		ios[2].driveConnected = false;
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
 		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
-		assertTrue(swerve.getModuleForTesting(2).getFaultReason().contains("encoder"));
+		assertTrue(swerve.getModuleForTesting(2).getDriveFaultReason().contains("drive"));
 
-		swerve.setModuleStates(new ChassisSpeeds(4.0, 0.0, 0.0));
+		swerve.setModuleStates(new ChassisSpeeds(4.0, 4.0, 0.0));
 		for (int i = 0; i < ios.length; i++) {
 			if (i == 2) {
 				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
-				assertEquals(0.0, ios[i].turnOutput, 1e-9);
+				// Steering is still allowed to aim the unpowered wheel.
+				assertEquals(45.0, swerve.getModuleForTesting(i).getSetpointForTesting().angle.getDegrees(), 1e-9);
+				assertTrue(ios[i].turnOutput > 0.0);
 			} else {
 				assertTrue(ios[i].driveVoltage > 0.0);
 				assertTrue(Math.abs(swerve.getModuleForTesting(i)
@@ -577,13 +621,32 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void twoModuleFaultsStopTheDrivetrain() {
+	void steeringFaultStopsTheDrivetrain() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
-		ios[1].absoluteEncoderConnected = false;
 		ios[2].absoluteEncoderConnected = false;
-		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
+			swerve.periodic();
+		}
+		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
+		assertTrue(swerve.getModuleForTesting(2).getSteeringFaultReason().contains("encoder"));
+
+		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
+		for (FakeModuleIO io : ios) {
+			assertEquals(0.0, io.driveVoltage, 1e-9);
+			assertEquals(0.0, io.turnOutput, 1e-9);
+		}
+	}
+
+	@Test
+	void twoDriveFaultsStopTheDrivetrain() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		ios[1].driveConnected = false;
+		ios[2].driveConnected = false;
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
 		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
@@ -596,18 +659,19 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void transientBadFrameUsesDegradedModeThenRecovers() {
+	void transientBadSampleIsolatesOneCycleThenRecovers() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
 		ios[2].absoluteEncoderConnected = false;
 		swerve.periodic();
-		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
+		assertEquals(Swerve.DriveMode.FULL, swerve.getDriveMode());
 
 		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
 		for (int i = 0; i < ios.length; i++) {
 			if (i == 2) {
 				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+				assertEquals(0.0, ios[i].turnOutput, 1e-9);
 			} else {
 				assertTrue(ios[i].driveVoltage > 0.0);
 			}
@@ -622,8 +686,8 @@ class SwerveControlTest {
 	void teleopKeepsDrivingInDegradedMode() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
-		ios[2].absoluteEncoderConnected = false;
-		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+		ios[2].driveConnected = false;
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
 
@@ -652,7 +716,7 @@ class SwerveControlTest {
 		assertTrue(command.isHeadingHoldActiveForTesting());
 
 		gyro.connected = false;
-		for (int i = 0; i < HealthConstants.kGyroFaultDebounceFrames; i++) {
+		for (int i = 0; i < GYRO_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
 		assertFalse(swerve.isFieldOrientedAvailable());
@@ -664,7 +728,7 @@ class SwerveControlTest {
 		assertEquals(0.0, command.getLastChassisSpeedsForTesting().vyMetersPerSecond, 1e-6);
 
 		gyro.connected = true;
-		for (int i = 0; i < HealthConstants.kGyroRecoveryFrames; i++) {
+		for (int i = 0; i < GYRO_RECOVERY_FRAMES; i++) {
 			swerve.periodic();
 		}
 		assertTrue(swerve.isFieldOrientedAvailable());
@@ -878,7 +942,7 @@ class SwerveControlTest {
 		module.periodic();
 		assertTrue(module.hasValidReading());
 		assertTrue(module.isHealthy());
-		assertTrue(module.getFaultReason().isEmpty());
+		assertTrue(module.getSteeringFaultReason().isEmpty());
 	}
 
 	@Test
@@ -928,6 +992,10 @@ class SwerveControlTest {
 			assertTrue(angleError < 1e-6,
 					"Angle mismatch at module " + i + " heading " + headingRad + " robotOriented " + robotOriented);
 		}
+	}
+
+	private static int frames(double seconds) {
+		return (int) Math.ceil(seconds / DriveConstants.kLoopPeriodSeconds);
 	}
 
 	private static Swerve createSimSwerve() {
@@ -986,6 +1054,7 @@ class SwerveControlTest {
 		boolean driveConnected = true;
 		boolean turnConnected = true;
 		boolean hardwareConfigured = true;
+		boolean telemetryValid = true;
 		String hardwareFault = "";
 
 		@Override
@@ -998,6 +1067,7 @@ class SwerveControlTest {
 			inputs.turnConnected = turnConnected;
 			inputs.hardwareConfigured = hardwareConfigured;
 			inputs.hardwareFault = hardwareFault;
+			inputs.telemetryValid = telemetryValid;
 		}
 
 		@Override

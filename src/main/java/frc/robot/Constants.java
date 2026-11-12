@@ -189,12 +189,12 @@ public final class Constants {
 	}
 
 	public static final class HealthConstants {
-		/* Invalid frames before a module or the gyro is reported failed. */
-		public static final int kEncoderFaultDebounceFrames = 5;
-		public static final int kGyroFaultDebounceFrames = 5;
-		/* Consecutive good frames required before driving resumes after a fault. */
-		public static final int kEncoderRecoveryFrames = 10;
-		public static final int kGyroRecoveryFrames = 10;
+		/* Time a signal must stay bad before the component is reported failed. */
+		public static final double kEncoderFaultDebounceSeconds = 0.1;
+		public static final double kGyroFaultDebounceSeconds = 0.1;
+		/* Consecutive-good time required before normal operation resumes. */
+		public static final double kEncoderRecoverySeconds = 0.2;
+		public static final double kGyroRecoverySeconds = 0.2;
 		/*
 		 * A generous upper bound for steering rate. The REV MK4n turn motor is roughly
 		 * 48 rad/s at the wheel, so 60 rad/s will not false-trigger on a legitimate
@@ -375,6 +375,10 @@ public final class Constants {
 		requirePid("heading", HeadingConstants.kKp, HeadingConstants.kKi, HeadingConstants.kKd);
 		requirePositive("max steering rate", HealthConstants.kMaxSteeringRateRadPerSec);
 		requirePositive("jump detection window", HealthConstants.kMaxJumpDetectionWindowSeconds);
+		requirePositive("encoder fault debounce", HealthConstants.kEncoderFaultDebounceSeconds);
+		requirePositive("gyro fault debounce", HealthConstants.kGyroFaultDebounceSeconds);
+		requirePositive("encoder recovery", HealthConstants.kEncoderRecoverySeconds);
+		requirePositive("gyro recovery", HealthConstants.kGyroRecoverySeconds);
 		requirePositive("angle jump confirm count", HealthConstants.kAngleJumpConfirmFrames);
 		requirePositive("REV drive current limit", RevConstants.kDriveSmartCurrentLimitAmps);
 		requirePositive("REV turn current limit", RevConstants.kTurnSmartCurrentLimitAmps);

@@ -24,8 +24,8 @@
 - `SwerveControlTest`: module order/kinematics, gyro sign, pose resets, steering
   optimization, cosine compensation, stop behavior, vendor steering, teleop
   interruption, input shaping, heading hold, health/fault recovery, delayed
-  vision, one/two-module fault handling, disabled reset, and measured velocity
-  control.
+  vision, drive-only/steering/telemetry faults, disabled reset, and measured
+  velocity control.
 - `ConstantsTest`: startup wiring validation and the unfinished CTRE gate.
 - `SwerveTeleOpTest`: input shaping.
 

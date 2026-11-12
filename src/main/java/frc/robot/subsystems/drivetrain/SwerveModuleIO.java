@@ -35,6 +35,8 @@ public interface SwerveModuleIO {
 		public boolean turnConnected = false;
 		public boolean hardwareConfigured = false;
 		public boolean absoluteEncoderConnected = false;
+		/* False means only non-essential telemetry is stale; do not disable motors. */
+		public boolean telemetryValid = true;
 		/*
 		 * Empty when the hardware is healthy; otherwise a short human-readable reason.
 		 */

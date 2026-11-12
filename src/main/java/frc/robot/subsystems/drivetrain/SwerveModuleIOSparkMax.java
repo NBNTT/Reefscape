@@ -94,6 +94,9 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 
 		inputs.hardwareConfigured = driveConfigured && turnConfigured;
 		inputs.hardwareFault = hardwareFault;
+		inputs.telemetryValid = Double.isFinite(inputs.driveAppliedVolts) && Double.isFinite(inputs.driveCurrentAmps)
+				&& Double.isFinite(inputs.driveTempCelsius) && Double.isFinite(inputs.turnAppliedVolts)
+				&& Double.isFinite(inputs.turnCurrentAmps) && Double.isFinite(inputs.turnTempCelsius);
 
 		// shortcut: REV CAN faults are sampled every 100 ms, not every 20 ms.
 		// Upgrade this if a faster motor-disconnect response is required.

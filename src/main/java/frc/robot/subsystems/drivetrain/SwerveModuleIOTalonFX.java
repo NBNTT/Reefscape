@@ -164,11 +164,14 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 
 	@Override
 	public void updateInputs(SwerveModuleIOInputs inputs) {
-		// Ask all signals for a fresh value in one batch and check every status.
+		// Ask all signals for a fresh value in one batch and check their status.
 		StatusCode refreshStatus = BaseStatusSignal.refreshAll(drivePosition, driveVelocity, driveVoltage, driveCurrent,
 				driveTemp, turnVoltage, turnCurrent, turnTemp, turnAbsolutePosition);
-		boolean signalsOk = refreshStatus.isOK() && BaseStatusSignal.isAllGood(drivePosition, driveVelocity,
-				driveVoltage, driveCurrent, driveTemp, turnVoltage, turnCurrent, turnTemp, turnAbsolutePosition);
+		boolean refreshOk = refreshStatus.isOK();
+		boolean driveEssential = refreshOk && BaseStatusSignal.isAllGood(drivePosition, driveVelocity);
+		boolean steerEssential = refreshOk && BaseStatusSignal.isAllGood(turnAbsolutePosition);
+		boolean telemetryOk = refreshOk && BaseStatusSignal.isAllGood(driveVoltage, driveCurrent, driveTemp,
+				turnVoltage, turnCurrent, turnTemp);
 
 		// getPosition/getVelocity are in wheel rotations and rotations per second
 		// because of SensorToMechanismRatio; multiply by circumference for meters.
@@ -190,8 +193,9 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		inputs.absoluteEncoderConnected = encoderConfigured && turnAbsolutePosition.getStatus().isOK();
 		inputs.hardwareConfigured = driveConfigured && turnConfigured && encoderConfigured;
 		inputs.hardwareFault = hardwareFault;
-		inputs.driveConnected = driveConfigured && signalsOk;
-		inputs.turnConnected = turnConfigured && encoderConfigured && signalsOk;
+		inputs.driveConnected = driveConfigured && driveEssential;
+		inputs.turnConnected = turnConfigured && encoderConfigured && steerEssential;
+		inputs.telemetryValid = telemetryOk;
 	}
 
 	@Override

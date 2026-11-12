@@ -1,53 +1,53 @@
 package frc.robot.subsystems.drivetrain;
 
 /**
- * Shared debounce and recovery counter for one health signal. A single bad
- * frame is visible immediately through {@link #isValid()}, while a sustained
- * failure is reported through {@link #isHealthy()} only after the configured
- * number of frames.
+ * Shared time-based debounce and recovery counter for one health signal. A bad
+ * sample is visible immediately through {@link #isValid()}, while a sustained
+ * failure is reported through {@link #isHealthy()} only after the fault window.
  */
 final class FaultMonitor {
-	private final int faultFrames;
-	private final int recoveryFrames;
+	private final double faultSeconds;
+	private final double recoverySeconds;
 
 	private boolean healthy = true;
 	private boolean valid = false;
-	private int invalidFrames = 0;
-	private int goodFrames = 0;
+	private double invalidSeconds = 0.0;
+	private double goodSeconds = 0.0;
 	private int recoveryCount = 0;
 	private String invalidReason = "";
 	private String faultReason = "";
 
-	FaultMonitor(int faultFrames, int recoveryFrames) {
-		if (faultFrames <= 0 || recoveryFrames <= 0) {
-			throw new IllegalArgumentException("Fault and recovery frame counts must be positive");
+	FaultMonitor(double faultSeconds, double recoverySeconds) {
+		if (!(faultSeconds > 0.0) || !(recoverySeconds > 0.0)) {
+			throw new IllegalArgumentException("Fault and recovery times must be positive");
 		}
-		this.faultFrames = faultFrames;
-		this.recoveryFrames = recoveryFrames;
+		this.faultSeconds = faultSeconds;
+		this.recoverySeconds = recoverySeconds;
 	}
 
-	/** One frame of input; a null reason is treated as an empty reason. */
-	void update(boolean valid, String reason) {
+	/** One sample; a null reason is treated as an empty reason. */
+	void update(boolean valid, String reason, double dtSeconds) {
 		this.valid = valid;
 		invalidReason = valid || reason == null ? "" : reason;
+		double dt = Double.isFinite(dtSeconds) && dtSeconds > 0.0 ? dtSeconds : 0.0;
 
 		if (valid) {
-			invalidFrames = 0;
+			invalidSeconds = 0.0;
 			if (!healthy) {
-				goodFrames++;
-				if (goodFrames >= recoveryFrames) {
+				goodSeconds += dt;
+				if (goodSeconds >= recoverySeconds - 1e-9) {
 					healthy = true;
 					faultReason = "";
-					goodFrames = 0;
+					goodSeconds = 0.0;
 					recoveryCount++;
 				}
 			}
 			return;
 		}
 
-		goodFrames = 0;
-		invalidFrames++;
-		if (healthy && invalidFrames >= faultFrames) {
+		goodSeconds = 0.0;
+		invalidSeconds += dt;
+		if (healthy && invalidSeconds >= faultSeconds - 1e-9) {
 			healthy = false;
 			faultReason = invalidReason;
 		} else if (!healthy) {
@@ -59,7 +59,7 @@ final class FaultMonitor {
 		return healthy;
 	}
 
-	/** False on the first bad frame, before the fault debounce expires. */
+	/** False on the first bad sample, before the fault window expires. */
 	boolean isValid() {
 		return valid;
 	}
@@ -69,7 +69,7 @@ final class FaultMonitor {
 		return healthy ? "" : faultReason;
 	}
 
-	/** Empty when the last frame was good. */
+	/** Empty when the last sample was good. */
 	String getInvalidReason() {
 		return invalidReason;
 	}

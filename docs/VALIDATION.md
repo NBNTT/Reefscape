@@ -118,8 +118,8 @@ or field-oriented driving.
   velocity control, the autonomous foundation, vision gating and delayed-vision
   history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
   semantic mode transitions, disabled heading reset, invalid/NaN inputs,
-  zero-speed wheel hold, rapid steering, sensor noise, one- and two-module
-  fault handling, and CTRE configuration retry.
+  zero-speed wheel hold, rapid steering, sensor noise, transient sample
+  isolation, drive-only/steering fault handling, telemetry-only faults, and CTRE configuration retry.
 - `ConstantsTest` checks startup validation, including the unfinished CTRE gate.
 - `SwerveTeleOpTest` checks deadband continuity, squared response, sign
   preservation, and full-stick reach.
@@ -169,22 +169,26 @@ Do this on blocks first.
     `Drive/ModuleX/DriveSpeedErrorMetersPerSec` while turning and accelerating.
 14. Check motor temperatures and currents after a few minutes.
 15. Unplug one absolute encoder while the robot is disabled. Confirm the Driver
-    Station error, `Drive/FaultReason`, and that only that module reports
-    `ReadingValid = false`. Enabling must leave that module neutralized and
-    allow the other three to drive in degraded mode at no more than 1 m/s and
-    1 rad/s. Reconnect it and confirm full mode returns after about 200 ms.
-16. Unplug a second absolute encoder. Confirm `Drive/DriveMode` is `STOPPED` and
-    enabling does not drive.
-17. Unplug the Pigeon 2 (or power it down) while disabled. Confirm
+    Station error, `Drive/FaultReason`, and that the module reports
+    `SteeringValid = false`. After the 100 ms window, `Drive/DriveMode` must be
+    `STOPPED`; enabling must not drive. Reconnect it and confirm full mode returns
+    after about 200 ms.
+16. Simulate one drive-only failure (unplug drive power/CAN while steering stays
+    powered, or use the test fake). Confirm that module's drive is zero, its
+    steering still aims the wheel, the other three drive, and `Drive/DriveMode`
+    is `DEGRADED` with speed capped at 1 m/s and 1 rad/s.
+17. Simulate a second drive-only failure. Confirm `Drive/DriveMode` is `STOPPED`
+    and enabling does not drive.
+18. Unplug the Pigeon 2 (or power it down) while disabled. Confirm
     `Drive/GyroFallbackActive` is true and that Teleop drives robot-oriented with
     heading hold off. Reconnect it and confirm field-oriented driving returns.
-18. Check `Drive/LoopTimeSeconds` stays near `0.02` and watch CPU usage in the
+19. Check `Drive/LoopTimeSeconds` stays near `0.02` and watch CPU usage in the
     Driver Station. If loop time is high, use AdvantageScope/AdvantageKit replay
     to find the slow code before optimizing.
-19. Use Phoenix Tuner X to check CAN utilization and status-signal rates. Reduce
+20. Use Phoenix Tuner X to check CAN utilization and status-signal rates. Reduce
     rates only if measured bus load requires it.
-20. Confirm `Drive/HardwareMode` says `REV_MK4N`.
-21. Record the measured wheel diameter, four encoder offsets, four drive
+21. Confirm `Drive/HardwareMode` says `REV_MK4N`.
+22. Record the measured wheel diameter, four encoder offsets, four drive
     directions, four steering directions, and the tuned drive/steering gains.
     Do not call the drivetrain validated until all four modules match.
 
@@ -252,10 +256,12 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
   cycle.
 - CTRE steering/current values are placeholders until the Kraken robot is built.
   The CTRE implementation has not been run on hardware.
-- Three-module degraded driving is software-validated only. One module fault
-  neutralizes that module and caps the remaining three to 1 m/s and 1 rad/s;
-  two or more module faults stop the drivetrain. Physical validation is still
-  required before competition.
+- Three-module degraded driving is software-validated only. One drive-only fault
+  leaves the other three capped at 1 m/s and 1 rad/s, with the failed module's
+  steering retained; steering/angle failure or two drive faults stop the
+  drivetrain. Physical validation is still required before competition.
+- A single bad sample is isolated for that cycle and is not logged as a module
+  failure; sustained faults use the 100 ms / 200 ms windows.
 - Physical REV encoder scaling, offsets, motor directions, and gain tuning are
   bench tasks. The code validates ranges and finiteness, not the real machine.
 - Vision has no camera implementation yet.

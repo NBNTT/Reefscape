@@ -38,14 +38,18 @@ public class SwerveModule {
 	private final SimpleMotorFeedforward driveFeedforward;
 	/** Where this module is trying to point and how fast. */
 	private SwerveModuleState setpoint = new SwerveModuleState();
-	private final FaultMonitor health = new FaultMonitor(HealthConstants.kEncoderFaultDebounceFrames,
-			HealthConstants.kEncoderRecoveryFrames);
+	private final FaultMonitor driveHealth = new FaultMonitor(HealthConstants.kEncoderFaultDebounceSeconds,
+			HealthConstants.kEncoderRecoverySeconds);
+	private final FaultMonitor steerHealth = new FaultMonitor(HealthConstants.kEncoderFaultDebounceSeconds,
+			HealthConstants.kEncoderRecoverySeconds);
 	private final DoubleSupplier clock;
 	private double lastUpdateTimeSeconds = 0.0;
 	private boolean hasLastUpdateTime = false;
 
 	private double lastValidAngleRad = 0.0;
 	private boolean hasLastValidAngle = false;
+	private double lastValidDrivePositionMeters = 0.0;
+	private boolean hasLastValidDrivePosition = false;
 	private double candidateAngleRad = 0.0;
 	private int candidateFrames = 0;
 
@@ -77,6 +81,9 @@ public class SwerveModule {
 		double dt = hasLastUpdateTime ? now - lastUpdateTimeSeconds : DriveConstants.kLoopPeriodSeconds;
 		lastUpdateTimeSeconds = now;
 		hasLastUpdateTime = true;
+		if (!Double.isFinite(dt) || dt < DriveConstants.kLoopPeriodSeconds) {
+			dt = DriveConstants.kLoopPeriodSeconds;
+		}
 
 		io.updateInputs(inputs);
 		updateHealth(dt);
@@ -91,17 +98,27 @@ public class SwerveModule {
 		refreshInputs();
 		Logger.processInputs("Drive/Module" + index, inputs);
 		Logger.recordOutput("Drive/Module" + index + "/Setpoint", setpoint);
-		Logger.recordOutput("Drive/Module" + index + "/Healthy", health.isHealthy());
-		Logger.recordOutput("Drive/Module" + index + "/ReadingValid", health.isValid());
-		Logger.recordOutput("Drive/Module" + index + "/InvalidReason", health.getInvalidReason());
-		Logger.recordOutput("Drive/Module" + index + "/FaultReason", health.getFaultReason());
-		Logger.recordOutput("Drive/Module" + index + "/RecoveryCount", health.getRecoveryCount());
+		Logger.recordOutput("Drive/Module" + index + "/DriveHealthy", driveHealth.isHealthy());
+		Logger.recordOutput("Drive/Module" + index + "/DriveValid", driveHealth.isValid());
+		Logger.recordOutput("Drive/Module" + index + "/DriveFaultReason", driveHealth.getFaultReason());
+		Logger.recordOutput("Drive/Module" + index + "/DriveInvalidReason", driveHealth.getInvalidReason());
+		Logger.recordOutput("Drive/Module" + index + "/SteeringHealthy", steerHealth.isHealthy());
+		Logger.recordOutput("Drive/Module" + index + "/SteeringValid", steerHealth.isValid());
+		Logger.recordOutput("Drive/Module" + index + "/SteeringFaultReason", steerHealth.getFaultReason());
+		Logger.recordOutput("Drive/Module" + index + "/SteeringInvalidReason", steerHealth.getInvalidReason());
+		Logger.recordOutput("Drive/Module" + index + "/TelemetryValid", inputs.telemetryValid);
+		Logger.recordOutput("Drive/Module" + index + "/RecoveryCount",
+				driveHealth.getRecoveryCount() + steerHealth.getRecoveryCount());
 
-		if (!health.isHealthy() || !health.isValid()) {
-			// Never steer or drive from a reading we do not trust.
+		if (!steerHealth.isHealthy() || !steerHealth.isValid()) {
+			// Steering or angle is untrusted: never drive or steer this module.
 			neutralize();
 			setpoint = new SwerveModuleState(0.0, new Rotation2d(currentAngleRad()));
 			return;
+		}
+		if (!driveHealth.isHealthy() || !driveHealth.isValid()) {
+			// Drive side is unavailable, but the wheel can still be aimed.
+			io.setDriveVoltage(0.0);
 		}
 
 		// How far the wheel still is from the target, and how far off the
@@ -124,12 +141,18 @@ public class SwerveModule {
 
 	/** Measured speed and steering angle. */
 	public SwerveModuleState getState() {
-		return new SwerveModuleState(finiteOrZero(inputs.driveVelocityMetersPerSec), new Rotation2d(currentAngleRad()));
+		double speed = driveHealth.isHealthy() && driveHealth.isValid()
+				? finiteOrZero(inputs.driveVelocityMetersPerSec)
+				: 0.0;
+		return new SwerveModuleState(speed, new Rotation2d(currentAngleRad()));
 	}
 
 	/** Measured distance traveled and steering angle; used by odometry. */
 	public SwerveModulePosition getPosition() {
-		return new SwerveModulePosition(finiteOrZero(inputs.drivePositionMeters), new Rotation2d(currentAngleRad()));
+		double distance = hasLastValidDrivePosition
+				? lastValidDrivePositionMeters
+				: finiteOrZero(inputs.drivePositionMeters);
+		return new SwerveModulePosition(distance, new Rotation2d(currentAngleRad()));
 	}
 
 	/**
@@ -142,7 +165,7 @@ public class SwerveModule {
 			stop();
 			return;
 		}
-		if (!health.isHealthy() || !health.isValid()) {
+		if (!steerHealth.isHealthy() || !steerHealth.isValid()) {
 			stop();
 			return;
 		}
@@ -158,7 +181,11 @@ public class SwerveModule {
 		// push sideways and scrub the carpet.
 		optimized.cosineScale(currentAngle);
 		setpoint = optimized;
-		applyDriveControl();
+		if (driveHealth.isHealthy() && driveHealth.isValid()) {
+			applyDriveControl();
+		} else {
+			io.setDriveVoltage(0.0);
+		}
 		applyTurnControl();
 	}
 
@@ -194,7 +221,7 @@ public class SwerveModule {
 	 */
 	public void stop() {
 		setpoint = new SwerveModuleState(0.0, new Rotation2d(currentAngleRad()));
-		if (health.isHealthy() && health.isValid()) {
+		if (steerHealth.isHealthy() && steerHealth.isValid()) {
 			io.setDriveVoltage(0.0);
 			applyTurnControl();
 		} else {
@@ -211,24 +238,49 @@ public class SwerveModule {
 		refreshInputs();
 	}
 
-	/** True after the fault debounce, not on a single noisy frame. */
+	/** True only when both drive and steering sides are fully healthy. */
 	public boolean isHealthy() {
-		return health.isHealthy();
+		return driveHealth.isHealthy() && steerHealth.isHealthy();
 	}
 
-	/** False on any bad encoder frame; driving is blocked immediately. */
+	/** Sustained drive-side failure; steering may still be usable. */
+	boolean isDriveHealthy() {
+		return driveHealth.isHealthy();
+	}
+
+	/** Sustained steering/angle failure; the module cannot be aimed safely. */
+	boolean isSteeringHealthy() {
+		return steerHealth.isHealthy();
+	}
+
+	/** False on any bad steering/angle sample; isolate it for that cycle. */
 	boolean hasValidReading() {
-		return health.isValid();
+		return steerHealth.isValid();
 	}
 
-	/** Empty when healthy; otherwise the reason the module is disabled. */
-	String getFaultReason() {
-		return health.getFaultReason();
+	/** False on any bad drive sample; drive is isolated for that cycle. */
+	boolean hasValidDrive() {
+		return driveHealth.isValid();
 	}
 
-	/** Empty when the last frame was good; otherwise why it was rejected. */
+	/** Empty when the drive side is healthy; otherwise the sustained reason. */
+	String getDriveFaultReason() {
+		return driveHealth.getFaultReason();
+	}
+
+	/** Empty when steering is healthy; otherwise the sustained reason. */
+	String getSteeringFaultReason() {
+		return steerHealth.getFaultReason();
+	}
+
+	/** Empty when the last steering sample was good. */
 	String getInvalidReason() {
-		return health.getInvalidReason();
+		return steerHealth.getInvalidReason();
+	}
+
+	/** Empty when the last drive sample was good. */
+	String getDriveInvalidReason() {
+		return driveHealth.getInvalidReason();
 	}
 
 	/** Test-only snapshot; callers cannot mutate the real setpoint. */
@@ -237,38 +289,45 @@ public class SwerveModule {
 	}
 
 	private void updateHealth(double dtSeconds) {
-		String bad = validateReading(dtSeconds);
-		health.update(bad == null, bad);
-		if (bad == null) {
+		String driveBad = validateDriveReading();
+		driveHealth.update(driveBad == null, driveBad, dtSeconds);
+		if (driveBad == null) {
+			lastValidDrivePositionMeters = inputs.drivePositionMeters;
+			hasLastValidDrivePosition = true;
+		}
+
+		String steerBad = validateSteeringReading(dtSeconds);
+		steerHealth.update(steerBad == null, steerBad, dtSeconds);
+		if (steerBad == null) {
 			candidateFrames = 0;
 			lastValidAngleRad = inputs.turnAbsolutePositionRad;
 			hasLastValidAngle = true;
 		}
 	}
 
+	private String validateDriveReading() {
+		if (!inputs.driveConnected) {
+			return "drive disconnected";
+		}
+		if (!Double.isFinite(inputs.drivePositionMeters) || !Double.isFinite(inputs.driveVelocityMetersPerSec)) {
+			return "non-finite drive data";
+		}
+		return null;
+	}
+
 	/**
-	 * Returns null when the frame can be used. The maximum plausible movement is
-	 * based on elapsed time and a generous steering rate. A jump must persist at
-	 * the new angle before it is accepted, so a single spike cannot steer the
-	 * module.
+	 * Returns null when the steering frame can be used. The maximum plausible
+	 * movement is based on elapsed time and a generous steering rate. A jump must
+	 * persist at the new angle before it is accepted, so a single spike cannot
+	 * steer the module.
 	 */
-	private String validateReading(double dtSeconds) {
+	private String validateSteeringReading(double dtSeconds) {
 		// Floor at the nominal loop period so fixed-step simulation/tests are not
 		// false-tripped; a longer stall raises the plausible movement.
 		double elapsed = MathUtil.clamp(dtSeconds, DriveConstants.kLoopPeriodSeconds,
 				HealthConstants.kMaxJumpDetectionWindowSeconds);
 		double maxJump = Math.min(Math.PI, HealthConstants.kMaxSteeringRateRadPerSec * elapsed);
 
-		if (!inputs.hardwareConfigured) {
-			candidateFrames = 0;
-			return inputs.hardwareFault == null || inputs.hardwareFault.isBlank()
-					? "hardware not configured"
-					: inputs.hardwareFault;
-		}
-		if (!inputs.driveConnected) {
-			candidateFrames = 0;
-			return "drive disconnected";
-		}
 		if (!inputs.turnConnected) {
 			candidateFrames = 0;
 			return "turn disconnected";
@@ -276,10 +335,6 @@ public class SwerveModule {
 		if (!inputs.absoluteEncoderConnected) {
 			candidateFrames = 0;
 			return "absolute encoder disconnected";
-		}
-		if (!Double.isFinite(inputs.drivePositionMeters) || !Double.isFinite(inputs.driveVelocityMetersPerSec)) {
-			candidateFrames = 0;
-			return "non-finite drive data";
 		}
 
 		double angle = inputs.turnAbsolutePositionRad;
