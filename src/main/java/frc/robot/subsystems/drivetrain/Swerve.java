@@ -212,7 +212,6 @@ public class Swerve extends SubsystemBase {
 		DriveMode mode = getDriveMode();
 		if (mode == DriveMode.STOPPED) {
 			stopModules();
-			Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
 			return;
 		}
 		Logger.recordOutput("Drive/RequestedChassisSpeeds", chassisSpeeds);
@@ -240,7 +239,6 @@ public class Swerve extends SubsystemBase {
 		DriveMode mode = getDriveMode();
 		if (mode == DriveMode.STOPPED) {
 			stopModules();
-			Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
 			return;
 		}
 		double maxSpeed = mode == DriveMode.DEGRADED
@@ -254,7 +252,6 @@ public class Swerve extends SubsystemBase {
 				modules[i].stop();
 			}
 		}
-		Logger.recordOutput("Drive/DriveMode", mode.name());
 		Logger.recordOutput("Drive/Setpoints", desiredStates);
 	}
 
@@ -300,24 +297,9 @@ public class Swerve extends SubsystemBase {
 		return unavailable == 1 ? DriveMode.DEGRADED : DriveMode.STOPPED;
 	}
 
-	/** True when at least three modules are usable. */
-	public boolean isDriveAllowed() {
-		return getDriveMode() != DriveMode.STOPPED;
-	}
-
-	/** Debounced gyro health, for reporting. */
-	public boolean isGyroHealthy() {
-		return gyroHealth.isHealthy();
-	}
-
 	/** Field-oriented driving needs a currently valid gyro reading. */
 	public boolean isFieldOrientedAvailable() {
 		return gyroHealth.isHealthy() && gyroHealth.isValid();
-	}
-
-	/** Empty when healthy; otherwise the active module/gyro faults. */
-	public String getFaultSummary() {
-		return faultSummary;
 	}
 
 	/**
@@ -552,19 +534,20 @@ public class Swerve extends SubsystemBase {
 
 		String newSummary = summary.toString();
 		boolean active = !newSummary.isEmpty();
+		String previousSummary = faultSummary;
+		faultSummary = newSummary;
 		if (active && !faultActive) {
 			DriverStation.reportError("Drivetrain fault: " + newSummary + ". " + blockedReason(), false);
 			faultCount++;
 		} else if (!active && faultActive) {
-			DriverStation.reportWarning("Drivetrain recovered: " + getFaultSummary(), false);
+			DriverStation.reportWarning("Drivetrain recovered: " + previousSummary, false);
 			recoveryCount++;
 		}
 		faultActive = active;
-		faultSummary = newSummary;
 
 		Logger.recordOutput("Drive/HardwareMode", Constants.kHardware.name());
 		Logger.recordOutput("Drive/FaultActive", faultActive);
-		Logger.recordOutput("Drive/FaultReason", getFaultSummary());
+		Logger.recordOutput("Drive/FaultReason", faultSummary);
 		Logger.recordOutput("Drive/FaultCount", faultCount);
 		Logger.recordOutput("Drive/RecoveryCount", recoveryCount);
 		Logger.recordOutput("Drive/GyroHealthy", gyroHealth.isHealthy());
@@ -579,22 +562,20 @@ public class Swerve extends SubsystemBase {
 		if (gyroHealth.isHealthy() && gyroHealth.isValid() && mode == DriveMode.FULL) {
 			return "";
 		}
-		StringBuilder reason = new StringBuilder();
+		StringBuilder reason = new StringBuilder(faultSummary);
 		for (int i = 0; i < modules.length; i++) {
 			SwerveModule module = modules[i];
-			if (!module.isHealthy()) {
-				appendFault(reason, "module " + i + " faulted: " + module.getFaultReason());
-			} else if (!module.hasValidReading()) {
+			if (module.isHealthy() && !module.hasValidReading()) {
 				appendFault(reason, "module " + i + " bad reading: " + module.getInvalidReason());
 			}
+		}
+		if (!isFieldOrientedAvailable()) {
+			appendFault(reason, "field heading unavailable; robot-oriented fallback");
 		}
 		if (mode == DriveMode.STOPPED) {
 			appendFault(reason, "driving disabled: two or more modules unavailable");
 		} else if (mode == DriveMode.DEGRADED) {
 			appendFault(reason, "degraded three-module mode active; speed capped");
-		}
-		if (!gyroHealth.isHealthy() || !gyroHealth.isValid()) {
-			appendFault(reason, "field heading unavailable; robot-oriented fallback");
 		}
 		return reason.toString();
 	}

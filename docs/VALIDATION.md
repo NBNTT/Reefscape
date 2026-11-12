@@ -119,7 +119,7 @@ or field-oriented driving.
   history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
   semantic mode transitions, disabled heading reset, invalid/NaN inputs,
   zero-speed wheel hold, rapid steering, sensor noise, one- and two-module
-  fault handling, and CTRE steering wraparound.
+  fault handling, and CTRE configuration retry.
 - `ConstantsTest` checks startup validation, including the unfinished CTRE gate.
 - `SwerveTeleOpTest` checks deadband continuity, squared response, sign
   preservation, and full-stick reach.

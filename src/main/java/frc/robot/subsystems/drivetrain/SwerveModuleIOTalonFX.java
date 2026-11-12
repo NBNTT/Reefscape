@@ -201,11 +201,9 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 
 	@Override
 	public void setTurnPosition(double angleRad) {
-		// PositionVoltage wants rotations. Pick the target rotation closest to the
-		// current one so the wheel does not take the long way around.
-		double currentRotations = turnAbsolutePosition.getValueAsDouble();
-		double targetRotations = closestContinuousTarget(currentRotations, angleRad / (2.0 * Math.PI));
-		turnMotor.setControl(new PositionVoltage(targetRotations).withSlot(0));
+		// PositionVoltage wants rotations. ContinuousWrap in the TalonFX config
+		// takes the shortest path across the sensor boundary.
+		turnMotor.setControl(new PositionVoltage(angleRad / (2.0 * Math.PI)).withSlot(0));
 	}
 
 	@Override
@@ -225,14 +223,6 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 			DriverStation.reportWarning(
 					"Failed to reset drive position on TalonFX " + config.driveId() + ": " + status.getName(), false);
 		}
-	}
-
-	/**
-	 * Rotations target closest to the current rotations, including across the
-	 * -pi/+pi and -180/+180 boundaries.
-	 */
-	static double closestContinuousTarget(double currentRotations, double targetRotations) {
-		return currentRotations + MathUtil.inputModulus(targetRotations - currentRotations, -0.5, 0.5);
 	}
 
 	/** Empty CAN bus name means the roboRIO bus; otherwise use the CANivore. */

@@ -99,7 +99,7 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   vendor steering, measured velocity control, the autonomous foundation, vision
   gating and delayed history, encoder/gyro fault and recovery, one/two-module
   fault behavior, semantic mode transitions, disabled reset, startup validation,
-  CTRE steering wrap, and CTRE config retry. `ConstantsTest` covers wiring validation.
+  and CTRE config retry. `ConstantsTest` covers wiring validation.
   `SwerveTeleOpTest` covers input shaping. Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot

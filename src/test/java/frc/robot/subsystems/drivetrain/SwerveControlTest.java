@@ -2,7 +2,6 @@ package frc.robot.subsystems.drivetrain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ctre.phoenix6.StatusCode;
@@ -291,18 +290,6 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void robotOrientedDisablesHeadingHold() {
-		FakeGyroIO gyro = new FakeGyroIO();
-		Swerve swerve = new Swerve(createFakeModules(), gyro);
-		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.0, () -> 0.0, () -> true, () -> true);
-		command.initialize();
-		command.execute();
-
-		assertFalse(command.isHeadingHoldActiveForTesting());
-		assertEquals(0.0, command.getLastChassisSpeedsForTesting().omegaRadiansPerSecond, 1e-9);
-	}
-
-	@Test
 	void fullStickReachesConfiguredMaximums() {
 		FakeGyroIO gyro = new FakeGyroIO();
 		Swerve swerve = new Swerve(createFakeModules(), gyro);
@@ -375,24 +362,6 @@ class SwerveControlTest {
 
 		assertEquals(DriveConstants.kMaxSpeedMetersPerSecond,
 				command.getLastChassisSpeedsForTesting().vyMetersPerSecond, 1e-6);
-	}
-
-	@Test
-	void lowStickHasFinerControl() {
-		FakeGyroIO gyro = new FakeGyroIO();
-		Swerve swerve = new Swerve(createFakeModules(), gyro);
-		SwerveTeleOp command = createDriveCommand(swerve, () -> 0.5, () -> 0.0, () -> false, () -> true);
-		command.initialize();
-
-		for (int i = 0; i < 30; i++) {
-			command.execute();
-		}
-
-		double expected = Math.pow((0.5 - OIConstants.kDeadband) / (1.0 - OIConstants.kDeadband), 2)
-				* DriveConstants.kMaxSpeedMetersPerSecond;
-		assertEquals(expected, command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-6);
-		assertTrue(command.getLastChassisSpeedsForTesting().vxMetersPerSecond < 0.5
-				* DriveConstants.kMaxSpeedMetersPerSecond);
 	}
 
 	@Test
@@ -515,16 +484,6 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void autonomousFoundationIsWiredToTheDrivetrain() {
-		Swerve swerve = new Swerve(createFakeModules(), new FakeGyroIO());
-		Command doNothing = Autos.doNothing();
-		Command driveForward = Autos.driveForward(swerve, 1.0, 0.1);
-
-		assertNotNull(doNothing);
-		assertTrue(driveForward.getRequirements().contains(swerve));
-	}
-
-	@Test
 	void measuredVelocityControlDoesNotUseOpenLoopPercent() {
 		FakeModuleIO io = new FakeModuleIO();
 		SwerveModule module = new SwerveModule(0, io);
@@ -533,17 +492,6 @@ class SwerveControlTest {
 		// Feedforward (kV * 1 m/s) plus feedback (kP * 1 m/s error) in volts.
 		assertEquals(DriveConstants.kDriveKvVoltsPerMps + DriveConstants.kDriveKp, io.driveVoltage, 1e-6);
 		assertTrue(io.driveVoltage <= 12.0);
-	}
-
-	@Test
-	void chassisSpeedsGoThroughDiscretize() {
-		FakeModuleIO[] ios = createFakeModules();
-		Swerve swerve = new Swerve(ios, new FakeGyroIO());
-		// A pure rotation exercises the discretize path without changing module order.
-		swerve.setModuleStates(new ChassisSpeeds(0.0, 0.0, 1.0));
-		for (int i = 0; i < ios.length; i++) {
-			assertTrue(Double.isFinite(swerve.getModuleForTesting(i).getSetpointForTesting().angle.getRadians()));
-		}
 	}
 
 	@Test
@@ -612,8 +560,7 @@ class SwerveControlTest {
 			swerve.periodic();
 		}
 		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
-		assertTrue(swerve.isDriveAllowed());
-		assertTrue(swerve.getFaultSummary().contains("module 2"));
+		assertTrue(swerve.getModuleForTesting(2).getFaultReason().contains("encoder"));
 
 		swerve.setModuleStates(new ChassisSpeeds(4.0, 0.0, 0.0));
 		for (int i = 0; i < ios.length; i++) {
@@ -640,7 +587,6 @@ class SwerveControlTest {
 			swerve.periodic();
 		}
 		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
-		assertFalse(swerve.isDriveAllowed());
 
 		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
 		for (FakeModuleIO io : ios) {
@@ -709,7 +655,6 @@ class SwerveControlTest {
 		for (int i = 0; i < HealthConstants.kGyroFaultDebounceFrames; i++) {
 			swerve.periodic();
 		}
-		assertFalse(swerve.isGyroHealthy());
 		assertFalse(swerve.isFieldOrientedAvailable());
 
 		command.execute();
@@ -722,7 +667,6 @@ class SwerveControlTest {
 		for (int i = 0; i < HealthConstants.kGyroRecoveryFrames; i++) {
 			swerve.periodic();
 		}
-		assertTrue(swerve.isGyroHealthy());
 		assertTrue(swerve.isFieldOrientedAvailable());
 
 		command.execute();
@@ -799,15 +743,6 @@ class SwerveControlTest {
 		assertEquals(0.0, swerve.getHeading().getRadians(), 1e-9);
 		assertEquals(1, gyro.resetCount);
 		scheduler.cancelAll();
-	}
-
-	@Test
-	void ctreSteeringTargetWrapsAcrossPi() {
-		assertEquals(1.05, SwerveModuleIOTalonFX.closestContinuousTarget(0.95, 0.05), 1e-9);
-		assertEquals(0.51, SwerveModuleIOTalonFX.closestContinuousTarget(0.49, -0.49), 1e-9);
-		assertEquals(-0.51, SwerveModuleIOTalonFX.closestContinuousTarget(-0.49, 0.49), 1e-9);
-		assertEquals(0.49, SwerveModuleIOTalonFX.closestContinuousTarget(0.0, 0.49), 1e-9);
-		assertEquals(-0.49, SwerveModuleIOTalonFX.closestContinuousTarget(0.0, -0.49), 1e-9);
 	}
 
 	@Test

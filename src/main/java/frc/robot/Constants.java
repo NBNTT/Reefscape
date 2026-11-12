@@ -352,60 +352,52 @@ public final class Constants {
 		require(hardware != null, "hardware selection is null");
 		require(configs != null && configs.size() == 4,
 				"expected four swerve module configs, got " + (configs == null ? "null" : configs.size()));
-		require(DriveConstants.kTrackWidth > 0.0, "track width must be positive");
-		require(DriveConstants.kWheelBase > 0.0, "wheelbase must be positive");
-		require(DriveConstants.kMaxSpeedMetersPerSecond > 0.0, "max speed must be positive");
-		require(DriveConstants.kMaxAngularSpeedRadiansPerSecond > 0.0, "max angular speed must be positive");
-		require(DriveConstants.kLoopPeriodSeconds > 0.0, "loop period must be positive");
-		require(DriveConstants.kMaxAccelerationMetersPerSecondSquared > 0.0, "max acceleration must be positive");
-		require(DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared > 0.0,
-				"max angular acceleration must be positive");
+		requirePositive("track width", DriveConstants.kTrackWidth);
+		requirePositive("wheelbase", DriveConstants.kWheelBase);
+		requirePositive("max speed", DriveConstants.kMaxSpeedMetersPerSecond);
+		requirePositive("max angular speed", DriveConstants.kMaxAngularSpeedRadiansPerSecond);
+		requirePositive("loop period", DriveConstants.kLoopPeriodSeconds);
+		requirePositive("max acceleration", DriveConstants.kMaxAccelerationMetersPerSecondSquared);
+		requirePositive("max angular acceleration", DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared);
 		require(DriveConstants.kDegradedMaxSpeedMetersPerSecond > 0.0
 				&& DriveConstants.kDegradedMaxSpeedMetersPerSecond <= DriveConstants.kMaxSpeedMetersPerSecond,
 				"degraded max speed is implausible");
 		require(DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond > 0.0
 				&& DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond <= DriveConstants.kMaxAngularSpeedRadiansPerSecond,
 				"degraded max angular speed is implausible");
-		require(isFiniteNonNegative(DriveConstants.kDriveKp), "drive kP must be finite and non-negative");
-		require(isFiniteNonNegative(DriveConstants.kDriveKi), "drive kI must be finite and non-negative");
-		require(isFiniteNonNegative(DriveConstants.kDriveKd), "drive kD must be finite and non-negative");
-		require(isFiniteNonNegative(DriveConstants.kDriveKsVolts), "drive kS must be finite and non-negative");
-		require(isFiniteNonNegative(DriveConstants.kDriveKvVoltsPerMps), "drive kV must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kPTurning), "steering kP must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kITurning), "steering kI must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kDTurning), "steering kD must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKp), "CTRE steering kP must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKi), "CTRE steering kI must be finite and non-negative");
-		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKd), "CTRE steering kD must be finite and non-negative");
-		require(ModuleConstants.kCtreTurnRotorToSensorRatio > 0.0, "CTRE turn rotor-to-sensor ratio must be positive");
-		require(isFiniteNonNegative(HeadingConstants.kKp), "heading kP must be finite and non-negative");
-		require(isFiniteNonNegative(HeadingConstants.kKi), "heading kI must be finite and non-negative");
-		require(isFiniteNonNegative(HeadingConstants.kKd), "heading kD must be finite and non-negative");
-		require(HealthConstants.kMaxSteeringRateRadPerSec > 0.0, "max steering rate must be positive");
-		require(HealthConstants.kMaxJumpDetectionWindowSeconds > 0.0, "jump detection window must be positive");
-		require(HealthConstants.kAngleJumpConfirmFrames > 0, "angle jump confirm count must be positive");
-		require(RevConstants.kDriveSmartCurrentLimitAmps > 0, "REV drive current limit must be positive");
-		require(RevConstants.kTurnSmartCurrentLimitAmps > 0, "REV turn current limit must be positive");
-		require(RevConstants.kVoltageCompensationVolts > 0.0, "REV voltage compensation must be positive");
-		require(RevConstants.kConfigRetries > 0, "REV config retries must be positive");
-		require(RevConstants.kConfigRetryDelaySeconds >= 0.0, "REV retry delay must not be negative");
-		require(RevConstants.kFaultPollFrames > 0, "REV fault poll interval must be positive");
-		require(RevConstants.kEncoderMinVolts >= 0.0 && RevConstants.kEncoderMaxMarginVolts >= 0.0,
-				"REV encoder voltage margins must not be negative");
+		requirePid("drive", DriveConstants.kDriveKp, DriveConstants.kDriveKi, DriveConstants.kDriveKd);
+		requireNonNegative("drive kS", DriveConstants.kDriveKsVolts);
+		requireNonNegative("drive kV", DriveConstants.kDriveKvVoltsPerMps);
+		requirePid("steering", ModuleConstants.kPTurning, ModuleConstants.kITurning, ModuleConstants.kDTurning);
+		requirePid("CTRE steering", ModuleConstants.kCtreTurnKp, ModuleConstants.kCtreTurnKi,
+				ModuleConstants.kCtreTurnKd);
+		requirePositive("CTRE turn rotor-to-sensor ratio", ModuleConstants.kCtreTurnRotorToSensorRatio);
+		requirePid("heading", HeadingConstants.kKp, HeadingConstants.kKi, HeadingConstants.kKd);
+		requirePositive("max steering rate", HealthConstants.kMaxSteeringRateRadPerSec);
+		requirePositive("jump detection window", HealthConstants.kMaxJumpDetectionWindowSeconds);
+		requirePositive("angle jump confirm count", HealthConstants.kAngleJumpConfirmFrames);
+		requirePositive("REV drive current limit", RevConstants.kDriveSmartCurrentLimitAmps);
+		requirePositive("REV turn current limit", RevConstants.kTurnSmartCurrentLimitAmps);
+		requirePositive("REV voltage compensation", RevConstants.kVoltageCompensationVolts);
+		requirePositive("REV config retries", RevConstants.kConfigRetries);
+		requireNonNegative("REV retry delay", RevConstants.kConfigRetryDelaySeconds);
+		requirePositive("REV fault poll interval", RevConstants.kFaultPollFrames);
+		requireNonNegative("REV encoder min volts", RevConstants.kEncoderMinVolts);
+		requireNonNegative("REV encoder max margin", RevConstants.kEncoderMaxMarginVolts);
 		require(RevConstants.kMinReferenceVoltageVolts > 0.0 && RevConstants.kMinReferenceVoltageVolts < 5.5,
 				"REV encoder reference voltage threshold is implausible");
-		require(CtreConstants.kDriveSupplyCurrentLimitAmps > 0.0, "CTRE drive supply limit must be positive");
-		require(CtreConstants.kDriveStatorCurrentLimitAmps > 0.0, "CTRE drive stator limit must be positive");
-		require(CtreConstants.kTurnSupplyCurrentLimitAmps > 0.0, "CTRE turn supply limit must be positive");
-		require(CtreConstants.kTurnStatorCurrentLimitAmps > 0.0, "CTRE turn stator limit must be positive");
-		require(CtreConstants.kPeakForwardVoltage > 0.0, "CTRE peak forward voltage must be positive");
+		requirePositive("CTRE drive supply limit", CtreConstants.kDriveSupplyCurrentLimitAmps);
+		requirePositive("CTRE drive stator limit", CtreConstants.kDriveStatorCurrentLimitAmps);
+		requirePositive("CTRE turn supply limit", CtreConstants.kTurnSupplyCurrentLimitAmps);
+		requirePositive("CTRE turn stator limit", CtreConstants.kTurnStatorCurrentLimitAmps);
+		requirePositive("CTRE peak forward voltage", CtreConstants.kPeakForwardVoltage);
 		require(CtreConstants.kPeakReverseVoltage < 0.0, "CTRE peak reverse voltage must be negative");
-		require(CtreConstants.kStatusUpdateHz > 0.0, "CTRE status update rate must be positive");
-		require(CtreConstants.kConfigRetries > 0, "CTRE config retries must be positive");
-		require(CtreConstants.kConfigRetryDelaySeconds >= 0.0, "CTRE retry delay must not be negative");
-		require(CtreConstants.kConfigTimeoutSeconds > 0.0, "CTRE config timeout must be positive");
+		requirePositive("CTRE status update rate", CtreConstants.kStatusUpdateHz);
+		requirePositive("CTRE config retries", CtreConstants.kConfigRetries);
+		requireNonNegative("CTRE retry delay", CtreConstants.kConfigRetryDelaySeconds);
+		requirePositive("CTRE config timeout", CtreConstants.kConfigTimeoutSeconds);
 		require(CAN.kCanBus != null, "CAN bus name is null");
-		require(CAN.kPigeonId > 0, "Pigeon CAN ID must be positive");
+		requirePositive("Pigeon CAN ID", CAN.kPigeonId);
 
 		if (hardware == Hardware.CTRE_MK5N) {
 			require(ctreConfigured, "CTRE hardware is selected but Constants.kCtreConfigured is false; "
@@ -442,8 +434,18 @@ public final class Constants {
 		}
 	}
 
-	private static boolean isFiniteNonNegative(double value) {
-		return Double.isFinite(value) && value >= 0.0;
+	private static void requirePositive(String name, double value) {
+		require(Double.isFinite(value) && value > 0.0, name + " must be positive");
+	}
+
+	private static void requireNonNegative(String name, double value) {
+		require(Double.isFinite(value) && value >= 0.0, name + " must be finite and non-negative");
+	}
+
+	private static void requirePid(String name, double p, double i, double d) {
+		requireNonNegative(name + " kP", p);
+		requireNonNegative(name + " kI", i);
+		requireNonNegative(name + " kD", d);
 	}
 
 	private static void require(boolean condition, String message) {

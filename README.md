@@ -126,8 +126,7 @@ for a new game. See `docs/VALIDATION.md`.
   heading in Disabled, Teleop, and Test. If the gyro rejects the reset, the pose
   heading is left alone and the failure is reported.
 - The REV path uses the WPILib steering PID; the CTRE path runs `PositionVoltage`
-  steering in the TalonFX with a continuous target wrapped to the closest
-  rotation.
+  steering in the TalonFX with continuous wrap enabled.
 - Teleop is blocked in Autonomous and Disabled.
 
 ## Repository layout
@@ -174,7 +173,7 @@ velocity control, the autonomous foundation, vision gating, delayed-vision
 history, encoder disconnect/invalid/jump/recovery, rapid steering and sensor
 noise rejection, gyro fallback/recovery, one- and two-module fault behavior,
 semantic mode transitions, disabled heading reset, invalid/NaN inputs,
-zero-speed wheel hold, startup validation, and CTRE steering wraparound.
+zero-speed wheel hold, startup validation, and CTRE config retry.
 
 GitHub Actions runs `spotlessCheck build` on every pull request and on `main`.
 No robot or camera is needed for the offline test suite.
