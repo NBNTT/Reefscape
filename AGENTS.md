@@ -23,7 +23,7 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   REVLib **2025.0.1**. The `akit-autolog` processor in `build.gradle` must match
   the vendor JSON version.
 - No PathPlanner in this season.
-- Source: `subsystems/drivetrain/Swerve`, `SwerveModule`, `PoseHistory`,
+- Source: `subsystems/drivetrain/Swerve`, `SwerveModule`, `FaultMonitor`,
   `SwerveModuleIO*`, `GyroIO*`; `commands/drivetrain/SwerveTeleOp`, `Autos`,
   `ResetHeading`; `DriverControls`, `Constants`, `RobotContainer`. Add future
   superstructure/vision beside them, not inside the drivetrain.
@@ -52,11 +52,14 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   loop only, so age, order, covariance, field bounds, historical-pose,
   innovation, and accepted/rejected logs are preserved. The estimator is not
   thread-safe.
-- A module with a bad encoder reading must never steer or drive. A sustained
-  module fault stops the whole drivetrain; do not add three-wheel driving
-  without validated control allocation and tests.
+- A module with a bad encoder reading must never steer or drive. One unavailable
+  module is neutralized and the other three continue at the conservative
+  `kDegraded...` limits; two or more unavailable modules stop the drivetrain.
+  Do not remove those limits without physical three-wheel validation.
 - REV CAN fault flags are polled every 100 ms by design; encoder angle is
   checked every cycle. Measure loop/CAN load before changing that interval.
+- The steering-jump detector compares measured encoder movement over time at a
+  generous rate; do not base it on joystick commands or a fixed per-frame angle.
 - A gyro fault must force robot-oriented driving and report the fallback; do not
   keep field-oriented control on a stale heading.
 
@@ -94,11 +97,10 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   driving at multiple headings, heading-hold capture/hold/manual override/
   wraparound/reset, periodic drive-encoder stability, drive-voltage limits,
   vendor steering, measured velocity control, the autonomous foundation, vision
-  gating and delayed history, encoder/gyro fault and recovery, module-fault safe
-  stop, semantic mode transitions, disabled reset, startup validation, CTRE
-  steering wrap, and CTRE config retry. `ConstantsTest` covers wiring validation.
-  `PoseHistoryTest` covers the delayed-vision history ring. `SwerveTeleOpTest`
-  covers input shaping. Expand them before changing behavior.
+  gating and delayed history, encoder/gyro fault and recovery, one/two-module
+  fault behavior, semantic mode transitions, disabled reset, startup validation,
+  CTRE steering wrap, and CTRE config retry. `ConstantsTest` covers wiring validation.
+  `SwerveTeleOpTest` covers input shaping. Expand them before changing behavior.
 - `./gradlew build` proves compile + formatting + all tests.
 - `simulateJava` on the host is the fastest behavior check; only the robot
   proves hardware.

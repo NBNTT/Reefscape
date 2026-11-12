@@ -80,11 +80,13 @@ real MK5n robot:
 
 - CAN IDs for four drive motors, four turn motors, four CANcoders, and the
   Pigeon 2, plus the CANivore name if one is used.
-- CANcoder IDs, magnet offsets, and sensor direction.
-- Wheel diameter and drive gear ratio.
+- CANcoder IDs, magnet offsets, sensor direction, and absolute discontinuity.
+- Wheel diameter, drive gear ratio, and turn rotor-to-sensor ratio.
 - Drive and turn motor inversion and sensor direction.
 - Drive and turn current limits and voltage limits in `Constants.CtreConstants`.
 - CTRE steering gains in `Constants.ModuleConstants`.
+- Continuous wrap enabled for the turn TalonFX; verify a target near ±180
+  degrees takes the short path on the new robot.
 
 `Constants.validateActiveHardware()` and the `SwerveModuleIOTalonFX` constructor
 both refuse to run with CTRE selected while `kCtreConfigured` is false. The CTRE
@@ -115,11 +117,10 @@ or field-oriented driving.
   drive-encoder stability, drive-voltage limits, vendor steering, measured
   velocity control, the autonomous foundation, vision gating and delayed-vision
   history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
-  module-fault safe stop, semantic mode transitions, disabled heading reset,
-  invalid/NaN inputs, zero-speed wheel hold, and CTRE steering wraparound.
+  semantic mode transitions, disabled heading reset, invalid/NaN inputs,
+  zero-speed wheel hold, rapid steering, sensor noise, one- and two-module
+  fault handling, and CTRE steering wraparound.
 - `ConstantsTest` checks startup validation, including the unfinished CTRE gate.
-- `PoseHistoryTest` checks the delayed-vision history ring: interpolation,
-  eviction of old samples, and reset behavior.
 - `SwerveTeleOpTest` checks deadband continuity, squared response, sign
   preservation, and full-stick reach.
 - Simulation does not prove motor directions, encoder offsets, current limits,
@@ -168,18 +169,24 @@ Do this on blocks first.
     `Drive/ModuleX/DriveSpeedErrorMetersPerSec` while turning and accelerating.
 14. Check motor temperatures and currents after a few minutes.
 15. Unplug one absolute encoder while the robot is disabled. Confirm the Driver
-    Station error, `Drive/FaultReason`, and that the module reports
-    `ReadingValid = false`; enabling must not drive. Reconnect it and confirm the
-    module recovers after about 200 ms.
-16. Unplug the Pigeon 2 (or power it down) while disabled. Confirm
+    Station error, `Drive/FaultReason`, and that only that module reports
+    `ReadingValid = false`. Enabling must leave that module neutralized and
+    allow the other three to drive in degraded mode at no more than 1 m/s and
+    1 rad/s. Reconnect it and confirm full mode returns after about 200 ms.
+16. Unplug a second absolute encoder. Confirm `Drive/DriveMode` is `STOPPED` and
+    enabling does not drive.
+17. Unplug the Pigeon 2 (or power it down) while disabled. Confirm
     `Drive/GyroFallbackActive` is true and that Teleop drives robot-oriented with
     heading hold off. Reconnect it and confirm field-oriented driving returns.
-17. Check `Drive/LoopTimeSeconds` stays near `0.02` and watch CPU usage in the
+18. Check `Drive/LoopTimeSeconds` stays near `0.02` and watch CPU usage in the
     Driver Station. If loop time is high, use AdvantageScope/AdvantageKit replay
     to find the slow code before optimizing.
-18. Use Phoenix Tuner X to check CAN utilization and status-signal rates. Reduce
+19. Use Phoenix Tuner X to check CAN utilization and status-signal rates. Reduce
     rates only if measured bus load requires it.
-19. Confirm `Drive/HardwareMode` says `REV_MK4N`.
+20. Confirm `Drive/HardwareMode` says `REV_MK4N`.
+21. Record the measured wheel diameter, four encoder offsets, four drive
+    directions, four steering directions, and the tuned drive/steering gains.
+    Do not call the drivetrain validated until all four modules match.
 
 Only then take the robot off blocks.
 
@@ -225,8 +232,9 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
   camera callback thread must queue the measurement.
 - Timestamps must use the same clock as `Timer` / `RobotController`.
 - Provide x, y, and heading standard deviations.
-- Delayed frames are compared with the pose history at the frame timestamp, not
-  just the current pose. `Vision/HistoricalPose` and
+- Delayed frames are compared with WPILib's
+  `SwerveDrivePoseEstimator.sampleAt()` pose at the frame timestamp, not just the
+  current pose. `Vision/HistoricalPose` and
   `Vision/CurrentTranslationInnovationMeters` show both checks.
 - The filter rejects invalid poses/timestamps, future timestamps, frames older
   than 0.5 s, out-of-order frames, too few tags, invalid covariance, poses
@@ -244,8 +252,12 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
   cycle.
 - CTRE steering/current values are placeholders until the Kraken robot is built.
   The CTRE implementation has not been run on hardware.
-- Three-wheel degraded driving is intentionally not implemented. A module fault
-  stops the whole drivetrain.
+- Three-module degraded driving is software-validated only. One module fault
+  neutralizes that module and caps the remaining three to 1 m/s and 1 rad/s;
+  two or more module faults stop the drivetrain. Physical validation is still
+  required before competition.
+- Physical REV encoder scaling, offsets, motor directions, and gain tuning are
+  bench tasks. The code validates ranges and finiteness, not the real machine.
 - Vision has no camera implementation yet.
 - The autonomous foundation only drives forward.
 - Measured velocity gains are starting values, not a full SysId tune.

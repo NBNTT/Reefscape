@@ -6,9 +6,11 @@ import edu.wpi.first.math.controller.SimpleMotorFeedforward;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
+import edu.wpi.first.wpilibj.Timer;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.HealthConstants;
 import frc.robot.Constants.ModuleConstants;
+import java.util.function.DoubleSupplier;
 import org.littletonrobotics.junction.Logger;
 
 /**
@@ -36,26 +38,27 @@ public class SwerveModule {
 	private final SimpleMotorFeedforward driveFeedforward;
 	/** Where this module is trying to point and how fast. */
 	private SwerveModuleState setpoint = new SwerveModuleState();
+	private final FaultMonitor health = new FaultMonitor(HealthConstants.kEncoderFaultDebounceFrames,
+			HealthConstants.kEncoderRecoveryFrames);
+	private final DoubleSupplier clock;
+	private double lastUpdateTimeSeconds = 0.0;
+	private boolean hasLastUpdateTime = false;
 
-	/*
-	 * Health state. A single bad frame stops this module immediately; a sustained
-	 * fault is reported after the debounce count and disables driving.
-	 */
-	private boolean healthy = true;
-	private boolean readingValid = false;
-	private int invalidFrames = 0;
-	private int recoveryFrames = 0;
-	private int recoveryCount = 0;
 	private double lastValidAngleRad = 0.0;
 	private boolean hasLastValidAngle = false;
 	private double candidateAngleRad = 0.0;
 	private int candidateFrames = 0;
-	private String invalidReason = "";
-	private String faultReason = "";
 
+	/** Production constructor; uses the FPGA clock for the steering-rate check. */
 	public SwerveModule(int index, SwerveModuleIO io) {
+		this(index, io, Timer::getFPGATimestamp);
+	}
+
+	/** Test constructor with an injectable clock for deterministic rate checks. */
+	SwerveModule(int index, SwerveModuleIO io, DoubleSupplier clock) {
 		this.index = index;
 		this.io = io;
+		this.clock = clock;
 
 		turningPID = new PIDController(ModuleConstants.kPTurning, ModuleConstants.kITurning, ModuleConstants.kDTurning);
 		// Tell the PID that -pi and +pi are the same angle.
@@ -70,8 +73,13 @@ public class SwerveModule {
 
 	/** Reads hardware, updates health, and logs nothing. */
 	public void refreshInputs() {
+		double now = clock.getAsDouble();
+		double dt = hasLastUpdateTime ? now - lastUpdateTimeSeconds : DriveConstants.kLoopPeriodSeconds;
+		lastUpdateTimeSeconds = now;
+		hasLastUpdateTime = true;
+
 		io.updateInputs(inputs);
-		updateHealth();
+		updateHealth(dt);
 	}
 
 	/**
@@ -83,13 +91,13 @@ public class SwerveModule {
 		refreshInputs();
 		Logger.processInputs("Drive/Module" + index, inputs);
 		Logger.recordOutput("Drive/Module" + index + "/Setpoint", setpoint);
-		Logger.recordOutput("Drive/Module" + index + "/Healthy", healthy);
-		Logger.recordOutput("Drive/Module" + index + "/ReadingValid", readingValid);
-		Logger.recordOutput("Drive/Module" + index + "/InvalidReason", invalidReason);
-		Logger.recordOutput("Drive/Module" + index + "/FaultReason", getFaultReason());
-		Logger.recordOutput("Drive/Module" + index + "/RecoveryCount", recoveryCount);
+		Logger.recordOutput("Drive/Module" + index + "/Healthy", health.isHealthy());
+		Logger.recordOutput("Drive/Module" + index + "/ReadingValid", health.isValid());
+		Logger.recordOutput("Drive/Module" + index + "/InvalidReason", health.getInvalidReason());
+		Logger.recordOutput("Drive/Module" + index + "/FaultReason", health.getFaultReason());
+		Logger.recordOutput("Drive/Module" + index + "/RecoveryCount", health.getRecoveryCount());
 
-		if (!healthy || !readingValid) {
+		if (!health.isHealthy() || !health.isValid()) {
 			// Never steer or drive from a reading we do not trust.
 			neutralize();
 			setpoint = new SwerveModuleState(0.0, new Rotation2d(currentAngleRad()));
@@ -134,7 +142,7 @@ public class SwerveModule {
 			stop();
 			return;
 		}
-		if (!healthy || !readingValid) {
+		if (!health.isHealthy() || !health.isValid()) {
 			stop();
 			return;
 		}
@@ -186,7 +194,7 @@ public class SwerveModule {
 	 */
 	public void stop() {
 		setpoint = new SwerveModuleState(0.0, new Rotation2d(currentAngleRad()));
-		if (healthy && readingValid) {
+		if (health.isHealthy() && health.isValid()) {
 			io.setDriveVoltage(0.0);
 			applyTurnControl();
 		} else {
@@ -205,22 +213,22 @@ public class SwerveModule {
 
 	/** True after the fault debounce, not on a single noisy frame. */
 	public boolean isHealthy() {
-		return healthy;
+		return health.isHealthy();
 	}
 
 	/** False on any bad encoder frame; driving is blocked immediately. */
 	boolean hasValidReading() {
-		return readingValid;
+		return health.isValid();
 	}
 
 	/** Empty when healthy; otherwise the reason the module is disabled. */
 	String getFaultReason() {
-		return healthy ? "" : faultReason;
+		return health.getFaultReason();
 	}
 
 	/** Empty when the last frame was good; otherwise why it was rejected. */
 	String getInvalidReason() {
-		return invalidReason;
+		return health.getInvalidReason();
 	}
 
 	/** Test-only snapshot; callers cannot mutate the real setpoint. */
@@ -228,44 +236,29 @@ public class SwerveModule {
 		return new SwerveModuleState(setpoint.speedMetersPerSecond, setpoint.angle);
 	}
 
-	private void updateHealth() {
-		String bad = validateReading();
-		invalidReason = bad == null ? "" : bad;
-
+	private void updateHealth(double dtSeconds) {
+		String bad = validateReading(dtSeconds);
+		health.update(bad == null, bad);
 		if (bad == null) {
-			invalidFrames = 0;
 			candidateFrames = 0;
-			readingValid = true;
 			lastValidAngleRad = inputs.turnAbsolutePositionRad;
 			hasLastValidAngle = true;
-			if (!healthy) {
-				recoveryFrames++;
-				if (recoveryFrames >= HealthConstants.kEncoderRecoveryFrames) {
-					healthy = true;
-					faultReason = "";
-					recoveryFrames = 0;
-					recoveryCount++;
-				}
-			}
-			return;
-		}
-
-		readingValid = false;
-		recoveryFrames = 0;
-		invalidFrames++;
-		if (healthy && invalidFrames >= HealthConstants.kEncoderFaultDebounceFrames) {
-			healthy = false;
-			faultReason = bad;
-		} else if (!healthy) {
-			faultReason = bad;
 		}
 	}
 
 	/**
-	 * Returns null when the frame can be used. A jump must persist at the new angle
-	 * before it is accepted, so a single spike cannot steer the module.
+	 * Returns null when the frame can be used. The maximum plausible movement is
+	 * based on elapsed time and a generous steering rate. A jump must persist at
+	 * the new angle before it is accepted, so a single spike cannot steer the
+	 * module.
 	 */
-	private String validateReading() {
+	private String validateReading(double dtSeconds) {
+		// Floor at the nominal loop period so fixed-step simulation/tests are not
+		// false-tripped; a longer stall raises the plausible movement.
+		double elapsed = MathUtil.clamp(dtSeconds, DriveConstants.kLoopPeriodSeconds,
+				HealthConstants.kMaxJumpDetectionWindowSeconds);
+		double maxJump = Math.min(Math.PI, HealthConstants.kMaxSteeringRateRadPerSec * elapsed);
+
 		if (!inputs.hardwareConfigured) {
 			candidateFrames = 0;
 			return inputs.hardwareFault == null || inputs.hardwareFault.isBlank()
@@ -299,7 +292,7 @@ public class SwerveModule {
 		}
 
 		double jump = Math.abs(MathUtil.inputModulus(angle - lastValidAngleRad, -Math.PI, Math.PI));
-		if (jump <= HealthConstants.kMaxAngleJumpRad) {
+		if (jump <= maxJump) {
 			candidateFrames = 0;
 			return null;
 		}
@@ -307,7 +300,7 @@ public class SwerveModule {
 		double candidateJump = candidateFrames == 0
 				? Double.POSITIVE_INFINITY
 				: Math.abs(MathUtil.inputModulus(angle - candidateAngleRad, -Math.PI, Math.PI));
-		candidateFrames = candidateJump <= HealthConstants.kMaxAngleJumpRad ? candidateFrames + 1 : 1;
+		candidateFrames = candidateJump <= maxJump ? candidateFrames + 1 : 1;
 		candidateAngleRad = angle;
 		if (candidateFrames >= HealthConstants.kAngleJumpConfirmFrames) {
 			// The new angle has been stable long enough to be real, not noise.

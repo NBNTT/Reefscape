@@ -77,7 +77,7 @@ public class SwerveTeleOp extends Command {
 	public void execute() {
 		// Default commands run in every mode; only the driver may drive in teleop or
 		// test.
-		if (!driverControlEnabled.getAsBoolean() || !swerve.isDrivetrainHealthy()) {
+		if (!driverControlEnabled.getAsBoolean() || !swerve.isDriveAllowed()) {
 			resetHeadingHold();
 			lastChassisSpeeds = new ChassisSpeeds();
 			setRumble(false);

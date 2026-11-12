@@ -18,9 +18,10 @@ The active path is selected by `Constants.kHardware`.
 
 - `REV_MK4N`: the 2024 test robot. This is active now.
 - `CTRE_MK5N`: the future Kraken robot. The code compiles, but the CTRE IDs,
-  offsets, wheel size, gearing, current limits, and steering gains are
-  placeholders. `Constants.kCtreConfigured` is `false` and startup refuses to
-  create CTRE hardware until it is set after the values are filled in.
+  offsets, wheel size, gearing, turn rotor-to-sensor ratio, current limits, and
+  steering gains are placeholders. Continuous wrap is enabled for steering.
+  `Constants.kCtreConfigured` is `false` and startup refuses to create CTRE
+  hardware until it is set after the values are filled in.
 
 ## Driver controls
 
@@ -62,9 +63,10 @@ changing `DriverControls.toggleRobotOriented()`.
 - A disconnected, non-finite, or implausibly jumping absolute encoder is never
   used for steering. The module neutralizes immediately, reports a fault after
   100 ms, and recovers after 200 ms of good readings.
-- If any module is faulted or has a bad reading, the whole drivetrain stops.
-  Three-wheel driving is intentionally not implemented because it is not
-  validated.
+- If one module is faulted or has a bad reading, only that module is neutralized;
+  the other three continue in a conservative degraded mode capped at 1 m/s and
+  1 rad/s. Two or more unavailable modules stop the drivetrain. The degraded
+  mode is software-validated only and still needs physical testing.
 - A disconnected or stale gyro forces robot-oriented driving, disables heading
   hold, and keeps the last valid heading for odometry. Field-oriented driving
   resumes after the gyro is healthy again.
@@ -90,13 +92,13 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
 ```
 
 Call it from the robot main loop only; the pose estimator is not thread-safe.
-`Swerve` compares a delayed frame with the estimated pose at the frame
-timestamp (`PoseHistory`), not only with the current pose. It filters stale,
-future, out-of-order, low-tag, invalid-covariance, outside-field, and large-jump
-measurements, then logs `Vision/Accepted`, `Vision/RejectedReason`,
-`Vision/HistoricalPose`, and accepted/rejected counts. The 2025 field bounds
-live in `Constants.VisionConstants` and must be updated for a new game. See
-`docs/VALIDATION.md`.
+`Swerve` compares a delayed frame with WPILib's timestamped
+`SwerveDrivePoseEstimator.sampleAt()` pose, not only with the current pose. It
+filters stale, future, out-of-order, low-tag, invalid-covariance, outside-field,
+and large-jump measurements, then logs `Vision/Accepted`,
+`Vision/RejectedReason`, `Vision/HistoricalPose`, and accepted/rejected counts.
+The 2025 field bounds live in `Constants.VisionConstants` and must be updated
+for a new game. See `docs/VALIDATION.md`.
 
 ## Drive control
 
@@ -137,7 +139,7 @@ frc/robot/
   Robot.java              WPILib/AdvantageKit main loop
   RobotContainer.java     wiring, controls, auto chooser
   commands/drivetrain/    SwerveTeleOp, Autos, ResetHeading
-  subsystems/drivetrain/  Swerve, SwerveModule, PoseHistory, Gyro, IO implementations
+  subsystems/drivetrain/  Swerve, SwerveModule, FaultMonitor, Gyro, IO implementations
 ```
 
 The next robot can add `subsystems/superstructure/`, `subsystems/vision/`, and
@@ -169,10 +171,10 @@ heading-hold capture/hold/manual override/wraparound/reset, input shaping
 (deadband continuity, squared response, full-stick maximum), periodic
 drive-encoder stability, drive-voltage limits, vendor steering, measured
 velocity control, the autonomous foundation, vision gating, delayed-vision
-history, encoder disconnect/invalid/jump/recovery, gyro fallback/recovery,
-module-fault safe stop, semantic mode transitions, disabled heading reset,
-invalid/NaN inputs, zero-speed wheel hold, pose-history interpolation/eviction,
-startup validation, and CTRE steering wraparound.
+history, encoder disconnect/invalid/jump/recovery, rapid steering and sensor
+noise rejection, gyro fallback/recovery, one- and two-module fault behavior,
+semantic mode transitions, disabled heading reset, invalid/NaN inputs,
+zero-speed wheel hold, startup validation, and CTRE steering wraparound.
 
 GitHub Actions runs `spotlessCheck build` on every pull request and on `main`.
 No robot or camera is needed for the offline test suite.

@@ -39,11 +39,14 @@ import org.littletonrobotics.junction.Logger;
  * runs the old REV robot, the future CTRE robot, and simulation.
  */
 public class Swerve extends SubsystemBase {
+	public enum DriveMode {
+		FULL, DEGRADED, STOPPED
+	}
+
 	private final SwerveModule[] modules = new SwerveModule[4];
 	private final GyroIO gyroIO;
 	private final GyroIOInputsAutoLogged gyroInputs = new GyroIOInputsAutoLogged();
 	private final SwerveDrivePoseEstimator poseEstimator;
-	private final PoseHistory poseHistory = new PoseHistory(VisionConstants.kPoseHistoryCapacity);
 	/** Used only to report the real loop time in AdvantageScope. */
 	private double lastTimestampSeconds = Timer.getFPGATimestamp();
 	/** Vision measurements older than the last accepted one are ignored. */
@@ -56,11 +59,8 @@ public class Swerve extends SubsystemBase {
 	 * Gyro health. A bad frame immediately disables field-oriented driving; the
 	 * debounced flag is what the Driver Station sees.
 	 */
-	private boolean gyroHealthy = false;
-	private boolean gyroReadingValid = false;
-	private int gyroInvalidFrames = 0;
-	private int gyroRecoveryFrames = 0;
-	private int gyroRecoveryCount = 0;
+	private final FaultMonitor gyroHealth = new FaultMonitor(HealthConstants.kGyroFaultDebounceFrames,
+			HealthConstants.kGyroRecoveryFrames);
 	private double lastValidYawRad = 0.0;
 	private boolean hasValidYaw = false;
 
@@ -95,7 +95,6 @@ public class Swerve extends SubsystemBase {
 				? new GyroIOSim(this::getMeasuredAngularVelocity)
 				: new GyroIOPigeon2(CAN.kPigeonId, CAN.kCanBus);
 		poseEstimator = createPoseEstimator();
-		poseHistory.reset(Timer.getFPGATimestamp(), getPose());
 	}
 
 	/**
@@ -108,7 +107,6 @@ public class Swerve extends SubsystemBase {
 			modules[i] = new SwerveModule(i, moduleIOs[i]);
 		}
 		poseEstimator = createPoseEstimator();
-		poseHistory.reset(Timer.getFPGATimestamp(), getPose());
 	}
 
 	/**
@@ -121,12 +119,15 @@ public class Swerve extends SubsystemBase {
 		}
 		gyroIO.updateInputs(gyroInputs);
 		boolean valid = gyroInputs.connected && Double.isFinite(gyroInputs.yawRad);
-		gyroReadingValid = valid;
-		gyroHealthy = valid;
+		gyroHealth.update(valid, "gyro disconnected or stale");
 		hasValidYaw = valid;
 		lastValidYawRad = valid ? gyroInputs.yawRad : 0.0;
-		return new SwerveDrivePoseEstimator(DriveConstants.kDriveKinematics, new Rotation2d(effectiveYawRad()),
-				getModulePositions(), new Pose2d());
+		SwerveDrivePoseEstimator estimator = new SwerveDrivePoseEstimator(DriveConstants.kDriveKinematics,
+				new Rotation2d(effectiveYawRad()), getModulePositions(), new Pose2d());
+		// Seed WPILib's internal pose history so a measurement received before the
+		// first periodic cycle still has a timestamped sample.
+		estimator.updateWithTime(Timer.getFPGATimestamp(), new Rotation2d(effectiveYawRad()), getModulePositions());
+		return estimator;
 	}
 
 	@Override
@@ -161,9 +162,10 @@ public class Swerve extends SubsystemBase {
 		Logger.recordOutput("Drive/Pose", getPose());
 		Logger.recordOutput("Drive/Heading", getHeading());
 		Logger.recordOutput("Drive/MeasuredStates", getModuleStates());
-		Logger.recordOutput("Drive/DriveDisabled", !isDrivetrainHealthy());
+		DriveMode mode = getDriveMode();
+		Logger.recordOutput("Drive/DriveMode", mode.name());
+		Logger.recordOutput("Drive/DriveDisabled", mode == DriveMode.STOPPED);
 		Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
-		poseHistory.add(now, getPose());
 	}
 
 	/** FL, FR, BL, BR. The order must stay the same as the kinematics. */
@@ -207,18 +209,27 @@ public class Swerve extends SubsystemBase {
 		// While the robot is rotating, the wheels must follow a slight curve over
 		// the next 20 ms. Discretize corrects for that instead of treating the
 		// motion as a straight line.
+		DriveMode mode = getDriveMode();
+		if (mode == DriveMode.STOPPED) {
+			stopModules();
+			Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
+			return;
+		}
 		Logger.recordOutput("Drive/RequestedChassisSpeeds", chassisSpeeds);
-		ChassisSpeeds discretized = ChassisSpeeds.discretize(chassisSpeeds, DriveConstants.kLoopPeriodSeconds);
+		ChassisSpeeds limited = mode == DriveMode.DEGRADED ? limitDegraded(chassisSpeeds) : chassisSpeeds;
+		if (mode == DriveMode.DEGRADED) {
+			Logger.recordOutput("Drive/DegradedChassisSpeeds", limited);
+		}
+		ChassisSpeeds discretized = ChassisSpeeds.discretize(limited, DriveConstants.kLoopPeriodSeconds);
 		Logger.recordOutput("Drive/DiscretizedChassisSpeeds", discretized);
 		setModuleStates(DriveConstants.kDriveKinematics.toSwerveModuleStates(discretized));
 	}
 
 	/**
 	 * Caps the requested speeds so no wheel is asked to exceed the robot's top
-	 * speed, then lets each module optimize its own steering angle. If any module
-	 * is unhealthy or has a bad reading, the whole drivetrain stays stopped:
-	 * three-wheel driving is not validated. A gyro fault only forces robot-oriented
-	 * fallback, handled by the teleop command.
+	 * speed, then lets each module optimize its own steering angle. One unavailable
+	 * module leaves the other three running with conservative limits; two or more
+	 * unavailable modules stop the drivetrain.
 	 */
 	public void setModuleStates(SwerveModuleState[] desiredStates) {
 		if (desiredStates == null || desiredStates.length != modules.length || !allStatesFinite(desiredStates)) {
@@ -226,15 +237,24 @@ public class Swerve extends SubsystemBase {
 			Logger.recordOutput("Drive/DriveBlockedReason", "invalid module setpoints");
 			return;
 		}
-		if (!isDrivetrainHealthy()) {
+		DriveMode mode = getDriveMode();
+		if (mode == DriveMode.STOPPED) {
 			stopModules();
 			Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
 			return;
 		}
-		SwerveDriveKinematics.desaturateWheelSpeeds(desiredStates, DriveConstants.kMaxSpeedMetersPerSecond);
+		double maxSpeed = mode == DriveMode.DEGRADED
+				? DriveConstants.kDegradedMaxSpeedMetersPerSecond
+				: DriveConstants.kMaxSpeedMetersPerSecond;
+		SwerveDriveKinematics.desaturateWheelSpeeds(desiredStates, maxSpeed);
 		for (int i = 0; i < modules.length; i++) {
-			modules[i].setDesiredState(desiredStates[i]);
+			if (modules[i].isHealthy() && modules[i].hasValidReading()) {
+				modules[i].setDesiredState(desiredStates[i]);
+			} else {
+				modules[i].stop();
+			}
 		}
+		Logger.recordOutput("Drive/DriveMode", mode.name());
 		Logger.recordOutput("Drive/Setpoints", desiredStates);
 	}
 
@@ -264,27 +284,35 @@ public class Swerve extends SubsystemBase {
 	}
 
 	/**
-	 * True only when every module has trusted data. A single invalid encoder frame
-	 * blocks driving immediately; the module-level debounce controls the fault
-	 * report, not the safety stop.
+	 * Full only when every module has trusted data. One unavailable module is a
+	 * conservative three-module mode; two or more stop the drivetrain.
 	 */
-	public boolean isDrivetrainHealthy() {
+	public DriveMode getDriveMode() {
+		int unavailable = 0;
 		for (SwerveModule module : modules) {
 			if (!module.isHealthy() || !module.hasValidReading()) {
-				return false;
+				unavailable++;
 			}
 		}
-		return true;
+		if (unavailable == 0) {
+			return DriveMode.FULL;
+		}
+		return unavailable == 1 ? DriveMode.DEGRADED : DriveMode.STOPPED;
+	}
+
+	/** True when at least three modules are usable. */
+	public boolean isDriveAllowed() {
+		return getDriveMode() != DriveMode.STOPPED;
 	}
 
 	/** Debounced gyro health, for reporting. */
 	public boolean isGyroHealthy() {
-		return gyroHealthy;
+		return gyroHealth.isHealthy();
 	}
 
 	/** Field-oriented driving needs a currently valid gyro reading. */
 	public boolean isFieldOrientedAvailable() {
-		return gyroHealthy && gyroReadingValid;
+		return gyroHealth.isHealthy() && gyroHealth.isValid();
 	}
 
 	/** Empty when healthy; otherwise the active module/gyro faults. */
@@ -310,7 +338,7 @@ public class Swerve extends SubsystemBase {
 		// Reject any camera frame captured before this reset.
 		double now = Timer.getFPGATimestamp();
 		lastAcceptedVisionTimestampSeconds = now;
-		poseHistory.reset(now, getPose());
+		poseEstimator.updateWithTime(now, new Rotation2d(effectiveYawRad()), getModulePositions());
 	}
 
 	/**
@@ -324,7 +352,7 @@ public class Swerve extends SubsystemBase {
 		boolean resetOk = gyroIO.resetYaw();
 		gyroIO.updateInputs(gyroInputs);
 		updateGyroHealth();
-		if (!resetOk || !gyroReadingValid) {
+		if (!resetOk || !gyroHealth.isValid()) {
 			DriverStation.reportError("Heading reset failed; pose heading was not changed", false);
 			return false;
 		}
@@ -333,7 +361,7 @@ public class Swerve extends SubsystemBase {
 				new Pose2d(currentPose.getTranslation(), new Rotation2d()));
 		double now = Timer.getFPGATimestamp();
 		lastAcceptedVisionTimestampSeconds = now;
-		poseHistory.reset(now, getPose());
+		poseEstimator.updateWithTime(now, new Rotation2d(effectiveYawRad()), getModulePositions());
 		headingResetCount++;
 		Logger.recordOutput("Drive/HeadingResetCount", headingResetCount);
 		return true;
@@ -366,7 +394,7 @@ public class Swerve extends SubsystemBase {
 		double now = Timer.getFPGATimestamp();
 		double age = now - timestampSeconds;
 		Pose2d currentPose = getPose();
-		Pose2d historicalPose = poseHistory.get(timestampSeconds);
+		Pose2d historicalPose = poseEstimator.sampleAt(timestampSeconds).orElse(null);
 		double translationInnovation = visionPose == null || historicalPose == null
 				? Double.NaN
 				: historicalPose.getTranslation().getDistance(visionPose.getTranslation());
@@ -437,6 +465,17 @@ public class Swerve extends SubsystemBase {
 				&& Double.isFinite(speeds.omegaRadiansPerSecond);
 	}
 
+	private static ChassisSpeeds limitDegraded(ChassisSpeeds speeds) {
+		double linear = Math.hypot(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond);
+		double scale = linear > DriveConstants.kDegradedMaxSpeedMetersPerSecond
+				? DriveConstants.kDegradedMaxSpeedMetersPerSecond / linear
+				: 1.0;
+		double omega = MathUtil.clamp(speeds.omegaRadiansPerSecond,
+				-DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond,
+				DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond);
+		return new ChassisSpeeds(speeds.vxMetersPerSecond * scale, speeds.vyMetersPerSecond * scale, omega);
+	}
+
 	private static boolean allStatesFinite(SwerveModuleState[] states) {
 		for (SwerveModuleState state : states) {
 			if (state == null || state.angle == null || !Double.isFinite(state.speedMetersPerSecond)
@@ -487,33 +526,16 @@ public class Swerve extends SubsystemBase {
 
 	private void updateGyroHealth() {
 		boolean valid = gyroInputs.connected && Double.isFinite(gyroInputs.yawRad);
+		gyroHealth.update(valid, "gyro disconnected or stale");
 		if (valid) {
 			lastValidYawRad = gyroInputs.yawRad;
 			hasValidYaw = true;
-			gyroReadingValid = true;
-			gyroInvalidFrames = 0;
-			if (!gyroHealthy) {
-				gyroRecoveryFrames++;
-				if (gyroRecoveryFrames >= HealthConstants.kGyroRecoveryFrames) {
-					gyroHealthy = true;
-					gyroRecoveryFrames = 0;
-					gyroRecoveryCount++;
-				}
-			}
-			return;
-		}
-
-		gyroReadingValid = false;
-		gyroRecoveryFrames = 0;
-		gyroInvalidFrames++;
-		if (gyroHealthy && gyroInvalidFrames >= HealthConstants.kGyroFaultDebounceFrames) {
-			gyroHealthy = false;
 		}
 	}
 
 	/** Last good yaw while the gyro is faulted; never throws away heading. */
 	private double effectiveYawRad() {
-		return gyroReadingValid ? gyroInputs.yawRad : (hasValidYaw ? lastValidYawRad : 0.0);
+		return gyroHealth.isValid() ? gyroInputs.yawRad : (hasValidYaw ? lastValidYawRad : 0.0);
 	}
 
 	private void updateFaultReporting() {
@@ -524,7 +546,7 @@ public class Swerve extends SubsystemBase {
 				appendFault(summary, "module " + i + ": " + module.getFaultReason());
 			}
 		}
-		if (!gyroHealthy) {
+		if (!gyroHealth.isHealthy()) {
 			appendFault(summary, "gyro: disconnected or stale");
 		}
 
@@ -545,15 +567,16 @@ public class Swerve extends SubsystemBase {
 		Logger.recordOutput("Drive/FaultReason", getFaultSummary());
 		Logger.recordOutput("Drive/FaultCount", faultCount);
 		Logger.recordOutput("Drive/RecoveryCount", recoveryCount);
-		Logger.recordOutput("Drive/GyroHealthy", gyroHealthy);
-		Logger.recordOutput("Drive/GyroReadingValid", gyroReadingValid);
+		Logger.recordOutput("Drive/GyroHealthy", gyroHealth.isHealthy());
+		Logger.recordOutput("Drive/GyroReadingValid", gyroHealth.isValid());
 		Logger.recordOutput("Drive/GyroFallbackActive", !isFieldOrientedAvailable());
-		Logger.recordOutput("Drive/GyroRecoveryCount", gyroRecoveryCount);
+		Logger.recordOutput("Drive/GyroRecoveryCount", gyroHealth.getRecoveryCount());
 	}
 
-	/** Human-readable reason driving is blocked, or an empty string. */
+	/** Human-readable reason driving is limited, or an empty string. */
 	private String blockedReason() {
-		if (gyroHealthy && gyroReadingValid && isDrivetrainHealthy()) {
+		DriveMode mode = getDriveMode();
+		if (gyroHealth.isHealthy() && gyroHealth.isValid() && mode == DriveMode.FULL) {
 			return "";
 		}
 		StringBuilder reason = new StringBuilder();
@@ -565,10 +588,12 @@ public class Swerve extends SubsystemBase {
 				appendFault(reason, "module " + i + " bad reading: " + module.getInvalidReason());
 			}
 		}
-		if (!isDrivetrainHealthy()) {
-			appendFault(reason, "driving disabled until every module is healthy");
+		if (mode == DriveMode.STOPPED) {
+			appendFault(reason, "driving disabled: two or more modules unavailable");
+		} else if (mode == DriveMode.DEGRADED) {
+			appendFault(reason, "degraded three-module mode active; speed capped");
 		}
-		if (!gyroHealthy || !gyroReadingValid) {
+		if (!gyroHealth.isHealthy() || !gyroHealth.isValid()) {
 			appendFault(reason, "field heading unavailable; robot-oriented fallback");
 		}
 		return reason.toString();

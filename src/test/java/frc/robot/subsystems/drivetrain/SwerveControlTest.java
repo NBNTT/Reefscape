@@ -603,7 +603,7 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void moduleFaultDisablesTheWholeDrivetrain() {
+	void oneModuleFaultAllowsDegradedThreeWheelDriving() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
@@ -611,14 +611,83 @@ class SwerveControlTest {
 		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
 			swerve.periodic();
 		}
-		assertFalse(swerve.isDrivetrainHealthy());
+		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
+		assertTrue(swerve.isDriveAllowed());
 		assertTrue(swerve.getFaultSummary().contains("module 2"));
+
+		swerve.setModuleStates(new ChassisSpeeds(4.0, 0.0, 0.0));
+		for (int i = 0; i < ios.length; i++) {
+			if (i == 2) {
+				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+				assertEquals(0.0, ios[i].turnOutput, 1e-9);
+			} else {
+				assertTrue(ios[i].driveVoltage > 0.0);
+				assertTrue(Math.abs(swerve.getModuleForTesting(i)
+						.getSetpointForTesting().speedMetersPerSecond) <= DriveConstants.kDegradedMaxSpeedMetersPerSecond
+								+ 1e-9);
+			}
+		}
+	}
+
+	@Test
+	void twoModuleFaultsStopTheDrivetrain() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		ios[1].absoluteEncoderConnected = false;
+		ios[2].absoluteEncoderConnected = false;
+		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+			swerve.periodic();
+		}
+		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
+		assertFalse(swerve.isDriveAllowed());
 
 		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
 		for (FakeModuleIO io : ios) {
 			assertEquals(0.0, io.driveVoltage, 1e-9);
 			assertEquals(0.0, io.turnOutput, 1e-9);
 		}
+	}
+
+	@Test
+	void transientBadFrameUsesDegradedModeThenRecovers() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		ios[2].absoluteEncoderConnected = false;
+		swerve.periodic();
+		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
+
+		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
+		for (int i = 0; i < ios.length; i++) {
+			if (i == 2) {
+				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+			} else {
+				assertTrue(ios[i].driveVoltage > 0.0);
+			}
+		}
+
+		ios[2].absoluteEncoderConnected = true;
+		swerve.periodic();
+		assertEquals(Swerve.DriveMode.FULL, swerve.getDriveMode());
+	}
+
+	@Test
+	void teleopKeepsDrivingInDegradedMode() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+		ios[2].absoluteEncoderConnected = false;
+		for (int i = 0; i < HealthConstants.kEncoderFaultDebounceFrames; i++) {
+			swerve.periodic();
+		}
+
+		SwerveTeleOp command = createDriveCommand(swerve, () -> 1.0, () -> 0.0, () -> false, () -> true);
+		command.initialize();
+		command.execute();
+
+		assertTrue(command.getLastChassisSpeedsForTesting().vxMetersPerSecond > 0.0);
+		assertTrue(ios[0].driveVoltage > 0.0);
+		assertEquals(0.0, ios[2].driveVoltage, 1e-9);
 	}
 
 	@Test
@@ -695,8 +764,10 @@ class SwerveControlTest {
 		double captureTime = Timer.getFPGATimestamp();
 		assertEquals(2.0, swerve.getPose().getX(), 1e-6);
 
-		// Move another 2 m. A frame captured at the old timestamp is now far from
-		// the current pose but close to the historical one.
+		// Move another 2 m after allowing the capture time to stay close to the
+		// previous estimator sample. A frame captured at the old timestamp is now far
+		// from the current pose but close to the historical one.
+		Timer.delay(0.05);
 		for (FakeModuleIO io : ios) {
 			io.drivePositionMeters = 4.0;
 		}
@@ -839,6 +910,59 @@ class SwerveControlTest {
 		}
 	}
 
+	@Test
+	void rapidSteeringAndWraparoundAreAccepted() {
+		FakeClock clock = new FakeClock();
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io, clock::getAsDouble);
+
+		double[] angles = {0.8, 1.6, 2.4, 3.1, -3.1};
+		for (double angle : angles) {
+			clock.advance(DriveConstants.kLoopPeriodSeconds);
+			io.turnAbsolutePositionRad = angle;
+			module.periodic();
+			assertTrue(module.isHealthy(), "Rapid steering to " + angle + " rad should be accepted");
+			assertTrue(module.hasValidReading());
+		}
+	}
+
+	@Test
+	void singleSensorNoiseSpikeDoesNotFault() {
+		FakeClock clock = new FakeClock();
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io, clock::getAsDouble);
+
+		clock.advance(DriveConstants.kLoopPeriodSeconds);
+		io.turnAbsolutePositionRad = 1.3;
+		module.periodic();
+		assertFalse(module.hasValidReading());
+		assertTrue(module.isHealthy());
+
+		clock.advance(DriveConstants.kLoopPeriodSeconds);
+		io.turnAbsolutePositionRad = 0.0;
+		module.periodic();
+		assertTrue(module.hasValidReading());
+		assertTrue(module.isHealthy());
+		assertTrue(module.getFaultReason().isEmpty());
+	}
+
+	@Test
+	void steeringJumpThresholdUsesElapsedTime() {
+		FakeClock clock = new FakeClock();
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io, clock::getAsDouble);
+
+		clock.advance(DriveConstants.kLoopPeriodSeconds);
+		io.turnAbsolutePositionRad = 2.0;
+		module.periodic();
+		assertFalse(module.hasValidReading());
+
+		clock.advance(HealthConstants.kMaxJumpDetectionWindowSeconds);
+		module.periodic();
+		assertTrue(module.hasValidReading());
+		assertTrue(module.isHealthy());
+	}
+
 	private static void assertDrivingMatches(double headingRad, boolean robotOriented) {
 		FakeGyroIO gyro = new FakeGyroIO();
 		Swerve swerve = new Swerve(createFakeModules(), gyro);
@@ -899,6 +1023,19 @@ class SwerveControlTest {
 			ios[i] = new FakeModuleIO();
 		}
 		return ios;
+	}
+
+	private static class FakeClock implements DoubleSupplier {
+		private double timeSeconds = 0.0;
+
+		void advance(double seconds) {
+			timeSeconds += seconds;
+		}
+
+		@Override
+		public double getAsDouble() {
+			return timeSeconds;
+		}
 	}
 
 	private static class FakeModuleIO implements SwerveModuleIO {

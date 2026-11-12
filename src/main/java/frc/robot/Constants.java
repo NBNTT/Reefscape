@@ -151,6 +151,8 @@ public final class Constants {
 		public static final double kCtreTurnKp = 10.0;
 		public static final double kCtreTurnKi = 0.0;
 		public static final double kCtreTurnKd = 0.0;
+		/* Rotor rotations per CANcoder rotation; fill from the real MK5n module. */
+		public static final double kCtreTurnRotorToSensorRatio = 1.0;
 	}
 
 	public static final class RevConstants {
@@ -194,11 +196,13 @@ public final class Constants {
 		public static final int kEncoderRecoveryFrames = 10;
 		public static final int kGyroRecoveryFrames = 10;
 		/*
-		 * A steering angle jump this large in one 20 ms cycle is not physically
-		 * plausible. A new angle must stay stable for the confirm count before it is
-		 * accepted, so a single noisy sample cannot steer the module.
+		 * A generous upper bound for steering rate. The REV MK4n turn motor is roughly
+		 * 48 rad/s at the wheel, so 60 rad/s will not false-trigger on a legitimate
+		 * fast steer. The detector scales this by elapsed time.
 		 */
-		public static final double kMaxAngleJumpRad = 1.5;
+		public static final double kMaxSteeringRateRadPerSec = 60.0;
+		/* Longer stalls cannot distinguish a real jump from normal motion. */
+		public static final double kMaxJumpDetectionWindowSeconds = 0.1;
 		public static final int kAngleJumpConfirmFrames = 10;
 	}
 
@@ -223,6 +227,9 @@ public final class Constants {
 		public static final double kMaxAngularSpeedRadiansPerSecond = 4.5;
 		/* The robot loop runs at 50 Hz; used to correct curved motion. */
 		public static final double kLoopPeriodSeconds = 0.02;
+		/* Conservative limits when exactly one module is unavailable. */
+		public static final double kDegradedMaxSpeedMetersPerSecond = 1.0;
+		public static final double kDegradedMaxAngularSpeedRadiansPerSecond = 1.0;
 		/* Slew-rate limits, used so the robot starts moving smoothly. */
 		public static final double kMaxAccelerationMetersPerSecondSquared = 13.5;
 		public static final double kMaxAngularAccelerationRadiansPerSecondSquared = 13.5;
@@ -310,8 +317,6 @@ public final class Constants {
 		/* 2025 Reefscape field bounds; update these for each new game. */
 		public static final double kFieldLengthMeters = 16.54175;
 		public static final double kFieldWidthMeters = 8.21055;
-		/* About two seconds of pose history at 50 Hz for delayed vision checks. */
-		public static final int kPoseHistoryCapacity = 100;
 	}
 
 	public static final class OIConstants {
@@ -355,6 +360,12 @@ public final class Constants {
 		require(DriveConstants.kMaxAccelerationMetersPerSecondSquared > 0.0, "max acceleration must be positive");
 		require(DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared > 0.0,
 				"max angular acceleration must be positive");
+		require(DriveConstants.kDegradedMaxSpeedMetersPerSecond > 0.0
+				&& DriveConstants.kDegradedMaxSpeedMetersPerSecond <= DriveConstants.kMaxSpeedMetersPerSecond,
+				"degraded max speed is implausible");
+		require(DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond > 0.0
+				&& DriveConstants.kDegradedMaxAngularSpeedRadiansPerSecond <= DriveConstants.kMaxAngularSpeedRadiansPerSecond,
+				"degraded max angular speed is implausible");
 		require(isFiniteNonNegative(DriveConstants.kDriveKp), "drive kP must be finite and non-negative");
 		require(isFiniteNonNegative(DriveConstants.kDriveKi), "drive kI must be finite and non-negative");
 		require(isFiniteNonNegative(DriveConstants.kDriveKd), "drive kD must be finite and non-negative");
@@ -366,9 +377,13 @@ public final class Constants {
 		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKp), "CTRE steering kP must be finite and non-negative");
 		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKi), "CTRE steering kI must be finite and non-negative");
 		require(isFiniteNonNegative(ModuleConstants.kCtreTurnKd), "CTRE steering kD must be finite and non-negative");
+		require(ModuleConstants.kCtreTurnRotorToSensorRatio > 0.0, "CTRE turn rotor-to-sensor ratio must be positive");
 		require(isFiniteNonNegative(HeadingConstants.kKp), "heading kP must be finite and non-negative");
 		require(isFiniteNonNegative(HeadingConstants.kKi), "heading kI must be finite and non-negative");
 		require(isFiniteNonNegative(HeadingConstants.kKd), "heading kD must be finite and non-negative");
+		require(HealthConstants.kMaxSteeringRateRadPerSec > 0.0, "max steering rate must be positive");
+		require(HealthConstants.kMaxJumpDetectionWindowSeconds > 0.0, "jump detection window must be positive");
+		require(HealthConstants.kAngleJumpConfirmFrames > 0, "angle jump confirm count must be positive");
 		require(RevConstants.kDriveSmartCurrentLimitAmps > 0, "REV drive current limit must be positive");
 		require(RevConstants.kTurnSmartCurrentLimitAmps > 0, "REV turn current limit must be positive");
 		require(RevConstants.kVoltageCompensationVolts > 0.0, "REV voltage compensation must be positive");

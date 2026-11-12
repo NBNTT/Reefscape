@@ -82,6 +82,7 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		// A reversed sensor flips the raw angle, so the offset must flip too.
 		double offsetRotations = config.encoderOffsetRad() / (2.0 * Math.PI);
 		encoderConfig.MagnetSensor.MagnetOffset = config.encoderInverted() ? -offsetRotations : offsetRotations;
+		encoderConfig.MagnetSensor.AbsoluteSensorDiscontinuityPoint = 0.5;
 		boolean encoderOk = applyWithRetry(
 				() -> absoluteEncoder.getConfigurator().apply(encoderConfig, CtreConstants.kConfigTimeoutSeconds),
 				"CANcoder " + config.encoderId()).isOK();
@@ -123,10 +124,14 @@ public class SwerveModuleIOTalonFX implements SwerveModuleIO {
 		// roboRIO. Gains are placeholders until they are tuned on the new robot.
 		turnConfig.Feedback.FeedbackSensorSource = FeedbackSensorSourceValue.RemoteCANcoder;
 		turnConfig.Feedback.FeedbackRemoteSensorID = config.encoderId();
+		turnConfig.Feedback.RotorToSensorRatio = ModuleConstants.kCtreTurnRotorToSensorRatio;
 		turnConfig.Feedback.SensorToMechanismRatio = 1.0;
 		turnConfig.Slot0.kP = ModuleConstants.kCtreTurnKp;
 		turnConfig.Slot0.kI = ModuleConstants.kCtreTurnKi;
 		turnConfig.Slot0.kD = ModuleConstants.kCtreTurnKd;
+		// Swerve azimuth is continuous. Let the TalonFX take the shortest path and
+		// wrap the target across the CANcoder's rotation boundary.
+		turnConfig.ClosedLoopGeneral.ContinuousWrap = true;
 		boolean turnOk = applyWithRetry(
 				() -> turnMotor.getConfigurator().apply(turnConfig, CtreConstants.kConfigTimeoutSeconds),
 				"turn TalonFX " + config.turnId()).isOK();
