@@ -534,7 +534,7 @@ public class Swerve extends SubsystemBase {
 			DriverStation.reportError("Drivetrain fault: " + newSummary + ". " + blockedReason(), false);
 			faultCount++;
 		} else if (!active && faultActive) {
-			DriverStation.reportWarning("Drivetrain recovered: " + faultSummary, false);
+			DriverStation.reportWarning("Drivetrain recovered: " + getFaultSummary(), false);
 			recoveryCount++;
 		}
 		faultActive = active;
@@ -542,7 +542,7 @@ public class Swerve extends SubsystemBase {
 
 		Logger.recordOutput("Drive/HardwareMode", Constants.kHardware.name());
 		Logger.recordOutput("Drive/FaultActive", faultActive);
-		Logger.recordOutput("Drive/FaultReason", faultSummary);
+		Logger.recordOutput("Drive/FaultReason", getFaultSummary());
 		Logger.recordOutput("Drive/FaultCount", faultCount);
 		Logger.recordOutput("Drive/RecoveryCount", recoveryCount);
 		Logger.recordOutput("Drive/GyroHealthy", gyroHealthy);

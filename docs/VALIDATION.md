@@ -240,6 +240,8 @@ swerve.addVisionMeasurement(pose, timestampSeconds, stdDevs, tagCount, averageTa
 ## 8. Known limitations
 
 - REV steering still uses the WPILib 50 Hz PID, not the SparkMax closed loop.
+- REV motor CAN faults are sampled every 100 ms; encoder angle is checked every
+  cycle.
 - CTRE steering/current values are placeholders until the Kraken robot is built.
   The CTRE implementation has not been run on hardware.
 - Three-wheel degraded driving is intentionally not implemented. A module fault

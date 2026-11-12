@@ -27,6 +27,9 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 	private final boolean driveConfigured;
 	private final boolean turnConfigured;
 	private final String hardwareFault;
+	private int faultPollCounter = 0;
+	private boolean driveCanFault = false;
+	private boolean turnCanFault = false;
 
 	public SwerveModuleIOSparkMax(SwerveModuleConfig config) {
 		this.config = config;
@@ -91,8 +94,16 @@ public class SwerveModuleIOSparkMax implements SwerveModuleIO {
 
 		inputs.hardwareConfigured = driveConfigured && turnConfigured;
 		inputs.hardwareFault = hardwareFault;
-		inputs.driveConnected = driveConfigured && !hasCanFault(driveMotor);
-		inputs.turnConnected = turnConfigured && !hasCanFault(turnMotor);
+
+		// shortcut: REV CAN faults are sampled every 100 ms, not every 20 ms.
+		// Upgrade this if a faster motor-disconnect response is required.
+		if (faultPollCounter == 0) {
+			driveCanFault = hasCanFault(driveMotor);
+			turnCanFault = hasCanFault(turnMotor);
+		}
+		faultPollCounter = (faultPollCounter + 1) % RevConstants.kFaultPollFrames;
+		inputs.driveConnected = driveConfigured && !driveCanFault;
+		inputs.turnConnected = turnConfigured && !turnCanFault;
 	}
 
 	/**

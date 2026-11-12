@@ -57,6 +57,8 @@ changing `DriverControls.toggleRobotOriented()`.
   A failed TalonFX/CANcoder/SparkMax configuration is reported and disables the
   affected module. Phoenix status signals are refreshed and checked every cycle,
   not just the encoder connection flag.
+- REV motor CAN faults are sampled every 100 ms to keep the old robot's CAN load
+  bounded; encoder angle health is still checked every cycle.
 - A disconnected, non-finite, or implausibly jumping absolute encoder is never
   used for steering. The module neutralizes immediately, reports a fault after
   100 ms, and recovers after 200 ms of good readings.

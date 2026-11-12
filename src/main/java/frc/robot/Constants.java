@@ -163,6 +163,8 @@ public final class Constants {
 		/* A motor controller may be slow to answer right after power-up. */
 		public static final int kConfigRetries = 3;
 		public static final double kConfigRetryDelaySeconds = 0.02;
+		/* REV CAN fault flags are sampled every 100 ms at 50 Hz. */
+		public static final int kFaultPollFrames = 5;
 		/* The analog encoder is assumed to span 0 V to the measured 5 V rail. */
 		public static final double kEncoderMinVolts = 0.01;
 		public static final double kEncoderMaxMarginVolts = 0.01;
@@ -372,6 +374,7 @@ public final class Constants {
 		require(RevConstants.kVoltageCompensationVolts > 0.0, "REV voltage compensation must be positive");
 		require(RevConstants.kConfigRetries > 0, "REV config retries must be positive");
 		require(RevConstants.kConfigRetryDelaySeconds >= 0.0, "REV retry delay must not be negative");
+		require(RevConstants.kFaultPollFrames > 0, "REV fault poll interval must be positive");
 		require(RevConstants.kEncoderMinVolts >= 0.0 && RevConstants.kEncoderMaxMarginVolts >= 0.0,
 				"REV encoder voltage margins must not be negative");
 		require(RevConstants.kMinReferenceVoltageVolts > 0.0 && RevConstants.kMinReferenceVoltageVolts < 5.5,

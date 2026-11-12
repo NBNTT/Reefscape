@@ -55,6 +55,8 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
 - A module with a bad encoder reading must never steer or drive. A sustained
   module fault stops the whole drivetrain; do not add three-wheel driving
   without validated control allocation and tests.
+- REV CAN fault flags are polled every 100 ms by design; encoder angle is
+  checked every cycle. Measure loop/CAN load before changing that interval.
 - A gyro fault must force robot-oriented driving and report the fallback; do not
   keep field-oriented control on a stale heading.
 
