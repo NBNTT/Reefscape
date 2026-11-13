@@ -287,10 +287,10 @@ public final class Constants {
 		 * position.
 		 */
 		public static SwerveModuleState[] crossModuleStates() {
-			return new SwerveModuleState[]{new SwerveModuleState(0.0, Rotation2d.fromDegrees(45)),
-					new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
-					new SwerveModuleState(0.0, Rotation2d.fromDegrees(-45)),
-					new SwerveModuleState(0.0, Rotation2d.fromDegrees(45))};
+			return new SwerveModuleState[]{new SwerveModuleState(0.0, Rotation2d.fromDegrees(135)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(45)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(-135)),
+					new SwerveModuleState(0.0, Rotation2d.fromDegrees(135))};
 		}
 	}
 
@@ -299,7 +299,7 @@ public final class Constants {
 		 * Heading-hold PID. P-only and conservative; output is rad/s. Keep these
 		 * separate from the steering PID.
 		 */
-		public static final double kKp = 2.0;
+		public static final double kKp = 4.0;
 		public static final double kKi = 0.0;
 		public static final double kKd = 0.0;
 		/* Normalized turn input below this is treated as "released". */

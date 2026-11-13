@@ -10,6 +10,7 @@ import edu.wpi.first.wpilibj.Timer;
 import frc.robot.Constants.DriveConstants;
 import frc.robot.Constants.HealthConstants;
 import frc.robot.Constants.ModuleConstants;
+import frc.robot.Constants.RevConstants;
 import java.util.function.DoubleSupplier;
 import org.littletonrobotics.junction.Logger;
 
@@ -167,6 +168,16 @@ public class SwerveModule {
 		}
 		if (!steerHealth.isHealthy() || !steerHealth.isValid()) {
 			stop();
+			return;
+		}
+
+		if (Math.abs(state.speedMetersPerSecond) < 1e-9) {
+			// Keep a zero-speed steering request exactly; X-lock and hold-angle
+			// commands must not be flipped 180 degrees by optimize().
+			setpoint = new SwerveModuleState(0.0,
+					new Rotation2d(MathUtil.inputModulus(state.angle.getRadians(), -Math.PI, Math.PI)));
+			applyDriveControl();
+			applyTurnControl();
 			return;
 		}
 
@@ -335,6 +346,17 @@ public class SwerveModule {
 		if (!inputs.absoluteEncoderConnected) {
 			candidateFrames = 0;
 			return "absolute encoder disconnected";
+		}
+		if (inputs.absoluteEncoderReferenceVoltage > 0.0) {
+			if (inputs.absoluteEncoderReferenceVoltage < RevConstants.kMinReferenceVoltageVolts) {
+				candidateFrames = 0;
+				return "absolute encoder 5V supply invalid";
+			}
+			if (!Double.isFinite(inputs.absoluteEncoderVoltage) || inputs.absoluteEncoderVoltage <= 0.0
+					|| inputs.absoluteEncoderVoltage >= inputs.absoluteEncoderReferenceVoltage) {
+				candidateFrames = 0;
+				return "absolute encoder voltage invalid";
+			}
 		}
 
 		double angle = inputs.turnAbsolutePositionRad;

@@ -27,6 +27,18 @@ class SwerveTest {
 	}
 
 	@Test
+	void rotatesInSimulation() {
+		Swerve swerve = createSimSwerve();
+		for (int i = 0; i < 60; i++) {
+			swerve.setModuleStates(new ChassisSpeeds(0.0, 0.0, 1.0));
+			swerve.periodic();
+		}
+		assertTrue(Math.abs(swerve.getHeading().getRadians()) > 0.1,
+				"Expected the simulated robot to rotate, heading was " + swerve.getHeading() + " speeds "
+						+ swerve.getRobotRelativeSpeeds());
+	}
+
+	@Test
 	void locksWheelsInX() {
 		Swerve swerve = createSimSwerve();
 
@@ -37,7 +49,7 @@ class SwerveTest {
 		}
 
 		// FL and BR point one way, FR and BL point the other; together they form an X.
-		double[] expectedDegrees = {45.0, -45.0, -45.0, 45.0};
+		double[] expectedDegrees = {135.0, 45.0, -135.0, 135.0};
 		SwerveModuleState[] states = swerve.getModuleStates();
 		for (int i = 0; i < states.length; i++) {
 			double error = Math
@@ -47,12 +59,18 @@ class SwerveTest {
 		}
 	}
 
-	/** Four simulated modules plus a gyro that never rotates. */
+	/**
+	 * Four simulated modules plus a gyro driven by the simulated chassis rotation.
+	 */
 	private static Swerve createSimSwerve() {
 		SwerveModuleIO[] moduleIOs = new SwerveModuleIO[4];
 		for (int i = 0; i < moduleIOs.length; i++) {
 			moduleIOs[i] = new SwerveModuleIOSim();
 		}
-		return new Swerve(moduleIOs, new GyroIOSim(() -> 0.0));
+		Swerve[] holder = new Swerve[1];
+		Swerve swerve = new Swerve(moduleIOs, new GyroIOSim(
+				() -> holder[0] == null ? 0.0 : holder[0].getRobotRelativeSpeeds().omegaRadiansPerSecond));
+		holder[0] = swerve;
+		return swerve;
 	}
 }

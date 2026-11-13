@@ -20,7 +20,7 @@
 
 `./gradlew build` currently runs:
 
-- `SwerveTest`: forward driving and X-lock in simulation.
+- `SwerveTest`: forward driving, rotation, and X-lock in simulation.
 - `SwerveControlTest`: module order/kinematics, gyro sign, pose resets, steering
   optimization, cosine compensation, stop behavior, vendor steering, teleop
   interruption, input shaping, heading hold, health/fault recovery, delayed

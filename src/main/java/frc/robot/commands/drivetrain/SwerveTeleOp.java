@@ -31,9 +31,9 @@ public class SwerveTeleOp extends Command {
 	private final BooleanSupplier driverControlEnabled;
 	private final DoubleConsumer rumble;
 
-	/** Fixed-step limits on how fast the requested speed can change. */
-	private double forwardLimited = 0.0;
-	private double strafeLimited = 0.0;
+	/** Fixed-step translation vector and rotation limits. */
+	private double translationLimitedX = 0.0;
+	private double translationLimitedY = 0.0;
 	private double turnLimited = 0.0;
 
 	/**
@@ -126,11 +126,23 @@ public class SwerveTeleOp extends Command {
 					-DriveConstants.kMaxAngularSpeedRadiansPerSecond, DriveConstants.kMaxAngularSpeedRadiansPerSecond);
 		}
 
-		// Convert stick fractions to real units, then limit how fast they change.
-		forward = forwardLimited = slew(forwardLimited, forward * DriveConstants.kMaxSpeedMetersPerSecond,
-				DriveConstants.kMaxAccelerationMetersPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
-		strafe = strafeLimited = slew(strafeLimited, strafe * DriveConstants.kMaxSpeedMetersPerSecond,
-				DriveConstants.kMaxAccelerationMetersPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
+		// Limit the translation vector so diagonal acceleration is consistent, then
+		// limit rotation separately. Both limits are per 20 ms step.
+		double targetX = forward * DriveConstants.kMaxSpeedMetersPerSecond;
+		double targetY = strafe * DriveConstants.kMaxSpeedMetersPerSecond;
+		double deltaX = targetX - translationLimitedX;
+		double deltaY = targetY - translationLimitedY;
+		double delta = Math.hypot(deltaX, deltaY);
+		double maxDelta = DriveConstants.kMaxAccelerationMetersPerSecondSquared * DriveConstants.kLoopPeriodSeconds;
+		if (delta > maxDelta) {
+			double scale = maxDelta / delta;
+			deltaX *= scale;
+			deltaY *= scale;
+		}
+		translationLimitedX += deltaX;
+		translationLimitedY += deltaY;
+		forward = translationLimitedX;
+		strafe = translationLimitedY;
 		double turnRadPerSec = turnLimited = slew(turnLimited, requestedTurnRadPerSec,
 				DriveConstants.kMaxAngularAccelerationRadiansPerSecondSquared, DriveConstants.kLoopPeriodSeconds);
 
@@ -146,6 +158,7 @@ public class SwerveTeleOp extends Command {
 	public void end(boolean interrupted) {
 		// Release the wheels and stop the rumble when another command takes over.
 		resetHeadingHold();
+		resetLimiters();
 		lastChassisSpeeds = new ChassisSpeeds();
 		swerve.stopModules();
 		setRumble(false);
@@ -163,8 +176,8 @@ public class SwerveTeleOp extends Command {
 	}
 
 	private void resetLimiters() {
-		forwardLimited = 0.0;
-		strafeLimited = 0.0;
+		translationLimitedX = 0.0;
+		translationLimitedY = 0.0;
 		turnLimited = 0.0;
 	}
 

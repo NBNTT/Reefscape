@@ -374,8 +374,8 @@ class SwerveControlTest {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 		double[] rumble = {1.0};
-
-		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> 1.0, () -> 0.0, () -> 0.0, () -> false, () -> true,
+		double[] forward = {1.0};
+		SwerveTeleOp command = new SwerveTeleOp(swerve, () -> forward[0], () -> 0.0, () -> 0.0, () -> false, () -> true,
 				() -> true, value -> rumble[0] = value);
 		command.initialize();
 		command.execute();
@@ -388,6 +388,12 @@ class SwerveControlTest {
 			assertEquals(0.0, io.driveVoltage, 1e-9);
 			assertEquals(0.0, io.turnOutput, 1e-9);
 		}
+
+		// Re-enabling with neutral sticks must not replay the old limiter value.
+		forward[0] = 0.0;
+		command.initialize();
+		command.execute();
+		assertEquals(0.0, command.getLastChassisSpeedsForTesting().vxMetersPerSecond, 1e-9);
 	}
 
 	@Test
@@ -536,6 +542,23 @@ class SwerveControlTest {
 	}
 
 	@Test
+	void invalidAbsoluteEncoderVoltageIsRejected() {
+		FakeModuleIO io = new FakeModuleIO();
+		SwerveModule module = new SwerveModule(0, io);
+
+		io.absoluteEncoderVoltage = 0.0;
+		module.periodic();
+		assertFalse(module.hasValidReading());
+		assertEquals("absolute encoder voltage invalid", module.getInvalidReason());
+
+		io.absoluteEncoderVoltage = 2.5;
+		io.absoluteEncoderReferenceVoltage = 4.0;
+		module.periodic();
+		assertFalse(module.hasValidReading());
+		assertEquals("absolute encoder 5V supply invalid", module.getInvalidReason());
+	}
+
+	@Test
 	void absoluteEncoderDisconnectStopsModuleAndRecovers() {
 		FakeModuleIO io = new FakeModuleIO();
 		SwerveModule module = new SwerveModule(0, io);
@@ -621,7 +644,7 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void steeringFaultStopsTheDrivetrain() {
+	void oneSteeringFaultUsesDegradedMode() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
@@ -629,8 +652,32 @@ class SwerveControlTest {
 		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
-		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
+		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
 		assertTrue(swerve.getModuleForTesting(2).getSteeringFaultReason().contains("encoder"));
+
+		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
+		for (int i = 0; i < ios.length; i++) {
+			if (i == 2) {
+				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+				assertEquals(0.0, ios[i].turnOutput, 1e-9);
+			} else {
+				assertTrue(ios[i].driveVoltage > 0.0);
+			}
+		}
+	}
+
+	@Test
+	void allSteeringFaultsStopTheDrivetrain() {
+		FakeModuleIO[] ios = createFakeModules();
+		Swerve swerve = new Swerve(ios, new FakeGyroIO());
+
+		for (FakeModuleIO io : ios) {
+			io.absoluteEncoderConnected = false;
+		}
+		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
+			swerve.periodic();
+		}
+		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
 
 		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
 		for (FakeModuleIO io : ios) {
@@ -640,7 +687,7 @@ class SwerveControlTest {
 	}
 
 	@Test
-	void twoDriveFaultsStopTheDrivetrain() {
+	void twoDriveFaultsUseDegradedMode() {
 		FakeModuleIO[] ios = createFakeModules();
 		Swerve swerve = new Swerve(ios, new FakeGyroIO());
 
@@ -649,12 +696,15 @@ class SwerveControlTest {
 		for (int i = 0; i < ENCODER_FAULT_FRAMES; i++) {
 			swerve.periodic();
 		}
-		assertEquals(Swerve.DriveMode.STOPPED, swerve.getDriveMode());
+		assertEquals(Swerve.DriveMode.DEGRADED, swerve.getDriveMode());
 
 		swerve.setModuleStates(new ChassisSpeeds(1.0, 0.0, 0.0));
-		for (FakeModuleIO io : ios) {
-			assertEquals(0.0, io.driveVoltage, 1e-9);
-			assertEquals(0.0, io.turnOutput, 1e-9);
+		for (int i = 0; i < ios.length; i++) {
+			if (i == 1 || i == 2) {
+				assertEquals(0.0, ios[i].driveVoltage, 1e-9);
+			} else {
+				assertTrue(ios[i].driveVoltage > 0.0);
+			}
 		}
 	}
 
@@ -1051,6 +1101,8 @@ class SwerveControlTest {
 		boolean useTurnPositionControl;
 		int resetCount;
 		boolean absoluteEncoderConnected = true;
+		double absoluteEncoderVoltage = 2.5;
+		double absoluteEncoderReferenceVoltage = 5.0;
 		boolean driveConnected = true;
 		boolean turnConnected = true;
 		boolean hardwareConfigured = true;
@@ -1063,6 +1115,8 @@ class SwerveControlTest {
 			inputs.driveVelocityMetersPerSec = driveVelocityMetersPerSec;
 			inputs.turnAbsolutePositionRad = turnAbsolutePositionRad;
 			inputs.absoluteEncoderConnected = absoluteEncoderConnected;
+			inputs.absoluteEncoderVoltage = absoluteEncoderVoltage;
+			inputs.absoluteEncoderReferenceVoltage = absoluteEncoderReferenceVoltage;
 			inputs.driveConnected = driveConnected;
 			inputs.turnConnected = turnConnected;
 			inputs.hardwareConfigured = hardwareConfigured;

@@ -167,6 +167,7 @@ public class Swerve extends SubsystemBase {
 		DriveMode mode = getDriveMode();
 		Logger.recordOutput("Drive/DriveMode", mode.name());
 		Logger.recordOutput("Drive/DriveDisabled", mode == DriveMode.STOPPED);
+		Logger.recordOutput("Drive/OdometryDegraded", mode != DriveMode.FULL);
 		Logger.recordOutput("Drive/DriveBlockedReason", blockedReason());
 	}
 
@@ -283,29 +284,27 @@ public class Swerve extends SubsystemBase {
 	}
 
 	/**
-	 * Steering/angle failure stops the drivetrain because the wheel cannot be aimed
-	 * safely. One drive-only failure leaves a conservative three-module mode; two
-	 * or more drive failures stop it.
+	 * Degraded mode is used whenever a module has a sustained drive or steering
+	 * fault, but at least one module can still steer. The whole drivetrain is only
+	 * stopped when no module can steer; the operators can disable it at any time.
 	 */
 	public DriveMode getDriveMode() {
-		int driveFaults = 0;
-		int steeringFaults = 0;
-		int invalidSteering = 0;
+		boolean anySteering = false;
+		boolean allHealthy = true;
 		for (SwerveModule module : modules) {
-			if (!module.isSteeringHealthy()) {
-				steeringFaults++;
+			if (module.isSteeringHealthy()) {
+				anySteering = true;
+			} else {
+				allHealthy = false;
 			}
 			if (!module.isDriveHealthy()) {
-				driveFaults++;
-			}
-			if (!module.hasValidReading()) {
-				invalidSteering++;
+				allHealthy = false;
 			}
 		}
-		if (steeringFaults > 0 || driveFaults > 1 || invalidSteering > 1 || (driveFaults > 0 && invalidSteering > 0)) {
+		if (!anySteering) {
 			return DriveMode.STOPPED;
 		}
-		return driveFaults == 1 ? DriveMode.DEGRADED : DriveMode.FULL;
+		return allHealthy ? DriveMode.FULL : DriveMode.DEGRADED;
 	}
 
 	/** Field-oriented driving needs a currently valid gyro reading. */
@@ -603,9 +602,9 @@ public class Swerve extends SubsystemBase {
 			appendFault(reason, "field heading unavailable; robot-oriented fallback");
 		}
 		if (mode == DriveMode.STOPPED) {
-			appendFault(reason, "driving disabled: unsafe steering/angle fault or two drive faults");
+			appendFault(reason, "driving stopped: no module can steer");
 		} else if (mode == DriveMode.DEGRADED) {
-			appendFault(reason, "one drive module unavailable; steering retained; speed capped");
+			appendFault(reason, "degraded module mode; speed capped");
 		}
 		return reason.toString();
 	}

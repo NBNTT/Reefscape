@@ -62,14 +62,13 @@ changing `DriverControls.toggleRobotOriented()`.
   bounded; encoder angle health is still checked every cycle.
 - A disconnected, non-finite, or implausibly jumping absolute encoder is never
   used for steering. A single bad sample isolates that module for the cycle but
-  is not treated as a module failure. Sustained steering/angle failure stops the
-  drivetrain after the 100 ms fault window; good readings restore operation after
-  a 200 ms confirmation.
+  is not treated as a module failure. A sustained steering/angle fault leaves
+  that module neutralized and the remaining steerable modules continue in
+  degraded mode; the drivetrain only stops if no module can steer.
 - A drive-only failure is less severe: the failed module's drive is set to zero,
   but its steering remains active so the unpowered wheel can follow the intended
-  direction. One drive failure uses the conservative 1 m/s / 1 rad/s three-module
-  mode; two drive failures stop the drivetrain. The degraded mode is
-  software-validated only and still needs physical testing.
+  direction. Degraded mode is capped at 1 m/s and 1 rad/s and is
+  software-validated only; it still needs physical testing.
 - Stale temperature/current telemetry is logged but does not disable a working
   motor.
 - A disconnected or stale gyro forces robot-oriented driving, disables heading
@@ -77,7 +76,8 @@ changing `DriverControls.toggleRobotOriented()`.
   resumes after the gyro is healthy again.
 - Faults and recoveries go to the Driver Station and to AdvantageKit:
   `Drive/FaultActive`, `Drive/FaultReason`, `Drive/FaultCount`,
-  `Drive/RecoveryCount`, `Drive/HardwareMode`, `Drive/GyroFallbackActive`, and
+  `Drive/RecoveryCount`, `Drive/HardwareMode`, `Drive/DriveMode`,
+  `Drive/OdometryDegraded`, `Drive/GyroFallbackActive`, and
   each module's `Healthy`, `ReadingValid`, `FaultReason`, and `RecoveryCount`.
 
 ## Autonomous
@@ -167,7 +167,7 @@ not depend on the roboRIO itself.
 ./gradlew deploy         # only while the robot is disabled
 ```
 
-The test suite covers forward driving, X-lock, module order/kinematics, gyro
+The test suite covers forward driving, rotation, X-lock, module order/kinematics, gyro
 sign and Start reset, angle wrapping, pose resets, steering optimization,
 cosine compensation, stop behavior, disabled and initialization behavior,
 teleop interruption, field- and robot-oriented driving at multiple headings,

@@ -53,10 +53,10 @@ Branch: `main`. See `docs/BUILD.md` and `docs/VALIDATION.md`.
   innovation, and accepted/rejected logs are preserved. The estimator is not
   thread-safe.
 - A bad steering/angle sample must never drive or steer that module. A single
-  sample isolates it for that cycle only; sustained steering failure stops the
-  drivetrain. A drive-only failure keeps that module's steering active and allows
-  the other three at the conservative `kDegraded...` limits; two drive failures
-  stop the drivetrain. Do not remove those limits without physical validation.
+  sample isolates it for that cycle only. A sustained module fault leaves that
+  module neutralized and the remaining steerable modules drive at the
+  conservative `kDegraded...` limits; only a total loss of steerable modules
+  stops the drivetrain. Do not auto-disable the whole robot for one module.
 - Telemetry-only failures (temperature/current/voltage signals) must not disable
   a working motor or steering loop.
 - Fault windows are time-based: about 100 ms to confirm, 200 ms to recover.
